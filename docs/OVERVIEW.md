@@ -67,6 +67,8 @@ later.
 | Part | In plain words | Everyday analogy |
 | --- | --- | --- |
 | **Input connectors** | Pluggable "ways data gets in": an Excel file, a CSV, a PDF, scanned images, a website crawler, or an online API. Add a source once and swap which one you use later — nothing downstream changes. Each connector sends its output to the right place: price/financial tables to the filing cabinet, text/documents to the library. Website and API connectors can log in first (credentials stay in a secure setting, never in the config). | A set of interchangeable delivery vans — post, courier, email — all dropping into the same in-tray. |
+| **Sign-in** | You log in with an email and password before you can use the page. Accounts are created on the same screen ("Create account"), or by an admin from the command line. | The staff badge you tap to get through the door. |
+| **Inputs page** | After signing in: a simple web page where you can **drag in a file** (Excel/CSV/PDF/image) or **paste a website address to crawl**, without setting anything up in advance. It also lists your saved sources with a "Run now" button. | The front counter where you hand something in by hand instead of posting it. |
 | **Normalisation** | Tidies every source into one consistent format (same column names, same date format). | Re-typing messy notes onto a standard form. |
 | **Database (with time-series storage)** | The filing cabinet. Keeps all historical prices, company financials, computed numbers, and every past report. | A very organised archive room. |
 | **Calculation engine** | Does the standard technical-analysis maths: moving averages, RSI, MACD, volatility, and so on. | An analyst's calculator and chart pack. |
@@ -77,7 +79,18 @@ later.
 | **Document library (RAG)** | Reads PDFs and notes you provide, and lets the research assistant "look things up" in them. | A librarian who has read every filing and can find the right paragraph. |
 | **Scheduler** | The alarm clock. Runs data collection and scans automatically at set times (e.g. every 15 minutes during market hours). | An office manager who starts each task on time. |
 | **The API** | The control panel other software (or a future website) uses to add watch-lists, set rules, and trigger a run on demand. | The reception desk that takes requests. |
-| **Frontend (website)** | A screen to see everything in a browser. **Not built yet** — only a blank shell exists. | The shop window — currently empty. |
+| **Frontend (website)** | A browser screen. So far just the **Inputs page** above; the dashboards for watch-lists, runs and reports aren't built yet. | The shop window — one shelf stocked, the rest still empty. |
+
+---
+
+### How data actually gets in — two ways
+
+1. **Automatically** — the scheduler runs your saved sources on a timetable
+   (e.g. prices every evening, a news site every few hours). Set it once, forget it.
+2. **By hand, from the Inputs page** — sign in, then upload a file or paste a
+   website address and hit "crawl". Good for a one-off document or a quick check.
+
+Either way the data lands in the same place and is treated identically from then on.
 
 ---
 
@@ -151,6 +164,9 @@ Total human effort: writing the rule once.
 - Pluggable input connectors: Excel, CSV, PDF, images (with an OCR add-on), a
   website crawler (can log in), and generic APIs — all feeding the same two
   destinations.
+- **Sign-in** (email + password; create an account on the page) protecting the
+  Inputs web page: upload a file or paste a URL to crawl, on demand, plus a list
+  of saved sources with "Run now".
 - Price intake, tidy-up, storage, and all the chart maths.
 - Custom rules and the trigger engine.
 - The full five-assistant AI team and the recorded audit trail.
@@ -160,7 +176,8 @@ Total human effort: writing the rule once.
 - Reading your PDFs / notes / crawled pages into the document library.
 
 **Still to come**
-- The website/dashboard to see it all in a browser (only a shell exists).
+- The rest of the website/dashboard — watch-lists, run history, reports in the
+  browser (only the Inputs page exists today).
 - A live, professional-grade market-data feed (currently file-based or a basic
   online snapshot).
 - Built-in image OCR (today the OCR step needs an add-on or an external service).

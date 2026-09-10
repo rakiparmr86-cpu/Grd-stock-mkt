@@ -1,24 +1,38 @@
-"""Password hashing and JWT helpers."""
+"""Password hashing (bcrypt) and JWT helpers."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt hashes at most 72 bytes of input. For longer passphrases we pre-hash
+# with SHA-256 (base64'd to stay printable) so no entropy past 72 bytes is lost.
+_BCRYPT_MAX = 72
+
+
+def _prehash(raw: str) -> bytes:
+    pw = raw.encode("utf-8")
+    if len(pw) > _BCRYPT_MAX:
+        pw = base64.b64encode(hashlib.sha256(pw).digest())
+    return pw
 
 
 def hash_password(raw: str) -> str:
-    return _pwd.hash(raw)
+    return bcrypt.hashpw(_prehash(raw), bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(raw: str, hashed: str) -> bool:
-    return _pwd.verify(raw, hashed)
+    try:
+        return bcrypt.checkpw(_prehash(raw), hashed.encode("ascii"))
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(subject: str | int, extra: dict[str, Any] | None = None) -> str:

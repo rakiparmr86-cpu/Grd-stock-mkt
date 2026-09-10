@@ -21,8 +21,8 @@ Every setting, its default, what it does, and what breaks if it's wrong.
 | `ENV` | `dev` | `dev` \| `staging` \| `prod`. `dev` + `DEBUG` turns on SQL echo. |
 | `DEBUG` | `true` | Verbose logging / SQL echo. Set `false` in prod. |
 | `API_V1_PREFIX` | `/api/v1` | Path prefix for all routers. Change → every client URL changes. |
-| `SECRET_KEY` | `change-me` | **Signs JWTs.** Must be a long random string in any shared env; changing it invalidates all existing tokens. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT lifetime. |
+| `SECRET_KEY` | `change-me` | **Signs JWTs.** Must be a long random string (≥ 32 chars) in any shared env; changing it invalidates all existing tokens. `/inputs/*` requires a valid token — see [../scripts/create_user.py](../scripts/create_user.py). |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT lifetime. No refresh token yet — on expiry the frontend returns to sign-in. |
 | `ALGORITHM` | `HS256` | JWT signing algo. Leave unless you know why. |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Browser origins allowed to call the API. Add the Vite dev origin (`http://localhost:5173`) when wiring the frontend. JSON list. |
 

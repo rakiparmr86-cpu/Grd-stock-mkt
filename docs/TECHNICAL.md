@@ -47,8 +47,8 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | Reports | Jinja2 + Matplotlib (base64 PNG), optional WeasyPrint PDF | ✅ / 🟡 PDF behind flag |
 | Notifications | SMTP email (MailHog in dev) | ✅ email · ⬜ WhatsApp/Telegram |
 | Frontend | Vite + React 19 (`frontend/my-react-app`) | 🟡 skeleton only |
-| Auth | JWT (PyJWT) + bcrypt (passlib), OAuth2 password flow | ✅ |
-| Tests | pytest (indicators + signal engine + offline agent graph) | ✅ 16 pass, 1 skips without langgraph |
+| Auth | JWT (PyJWT) + bcrypt (direct), OAuth2 password flow; enforced on `/inputs/*` | ✅ |
+| Tests | pytest — indicators, signal engine, inputs, security, API auth gate; agent graph skips without langgraph | ✅ 48 pass, 1 skip |
 
 ---
 
@@ -90,7 +90,7 @@ Grd-stock-mkt/
 │       ├── beat_schedule.py     static + `schedules` table + `input_sources` cron
 │       └── tasks/               market_data · analysis · rag · inputs · notifications
 ├── migrations/                  Alembic (0001_initial creates all tables + hypertables)
-├── scripts/seed_data.py         demo watchlist + strategy + rules + synthetic OHLCV + a note
+├── scripts/                     seed_data.py (demo data + demo login) · create_user.py
 ├── tests/                       conftest fixture + test_indicators + test_signal_engine
 │                                + test_agents_graph (offline)
 ├── frontend/my-react-app/       Vite React 19 skeleton  🟡
@@ -231,7 +231,7 @@ Base prefix `/api/v1`. Interactive docs at `/docs`.
 | Method & path | Purpose |
 | --- | --- |
 | `GET /health` · `GET /health/ready` | liveness · checks Postgres + Redis + Qdrant |
-| `POST /auth/register` · `POST /auth/login` · `GET /auth/me` | JWT bearer; login is OAuth2 password form |
+| `POST /auth/register` · `POST /auth/login` · `GET /auth/me` | JWT bearer; login is OAuth2 password form (`username` = email). Bootstrap without the API: `python scripts/create_user.py EMAIL PASSWORD` |
 | `GET/POST /watchlists` · `GET /watchlists/{id}` · `POST /watchlists/{id}/items` · `DELETE /watchlists/{id}` | |
 | `GET/POST /strategies` · `GET /strategies/{id}` · `PATCH /strategies/{id}/active` | creating a strategy also creates its rules + thresholds |
 | `GET /rules` · `POST /rules/strategy/{id}` · `PATCH /rules/{id}` · `DELETE /rules/{id}` · `POST /rules/test` | `/test` dry-runs an AST against a supplied indicators dict |
@@ -240,14 +240,21 @@ Base prefix `/api/v1`. Interactive docs at `/docs`.
 | `POST /inputs/{id}/run` · `POST /inputs/test` | run a saved source (async by default); `/test` dry-runs a connector config with capped results, no writes |
 | `POST /inputs/upload` | **frontend**: multipart file upload (CSV/Excel/PDF/image). `mode=ingest_once` queues an ad-hoc ingest per file; `mode=save_source` also creates an `InputSource` row (optionally scheduled) |
 | `POST /inputs/crawl` | **frontend**: start a web crawl from URL(s). SSRF-guarded (private/loopback hosts refused unless `CRAWLER_ALLOW_PRIVATE`); `auth` block names env vars, no raw secrets; `save_as` persists it as a source |
+
+**Every `/inputs/*` route requires a valid bearer token** (router-level
+`Depends(get_current_user)` in `app/api/v1/router.py`). `/health` and `/auth/*`
+are open; the other resource routers are still unauthenticated (see §17).
 | `POST /runs` | trigger analysis for a ticker; `async_=true` → Celery task id, `false` → runs inline and returns the result |
 | `GET /runs` · `GET /runs/{id}` · `GET /runs/{id}/decisions` | run history + per-agent audit |
 | `GET /signals` | filter by `ticker` / `run_id` |
 | `GET /reports` · `GET /reports/{id}` · `GET /reports/{id}/html` | last serves the rendered HTML file |
 | `WS /ws/signals` | accepts a socket, echoes `{"type":"ack"}` — **placeholder**; real impl should subscribe to a Redis pub/sub channel the tasks publish to |
 
-Auth is **defined but not enforced** on the resource routers yet — add
-`user: CurrentUser` (from `app/api/deps.py`) to lock endpoints down.
+Auth is enforced on **`/inputs/*`** (router-level dependency). The other
+resource routers (`watchlists`, `strategies`, `rules`, `runs`, `signals`,
+`reports`) are still open — add `dependencies=[Depends(get_current_user)]` to
+each `include_router` in `app/api/v1/router.py`, or `user: CurrentUser` per
+route, to lock them down.
 
 ---
 
@@ -456,17 +463,25 @@ Beat entry.
 
 ## 14. Frontend  🟡
 
-`frontend/my-react-app/` — Vite 8 + React 19 + oxlint.
+`frontend/my-react-app/` — Vite 8 + React 19 + oxlint. Three source files:
 
-`src/App.jsx` is a working **Inputs console** (single file, plain `fetch`, no
-router / state lib): upload files → `POST /inputs/upload`, crawl a URL →
-`POST /inputs/crawl`, and a saved-sources table with a per-row **Run** button
-(`GET /inputs`, `POST /inputs/{id}/run`). API base from `VITE_API_BASE`
-(default `http://localhost:8000/api/v1`; CORS allows `:5173`).
+- `src/api.js` — `API_BASE` (`VITE_API_BASE`, default `http://localhost:8000/api/v1`),
+  bearer-token storage in `localStorage` (`grd_token`), an `api()` fetch wrapper
+  that attaches the token and throws `AuthError` (clearing the token) on 401,
+  plus `login()` / `register()` / `me()` / `logout()`.
+- `src/AuthForm.jsx` — sign-in / create-account tabs. Register (`POST /auth/register`,
+  JSON) then auto-login (`POST /auth/login`, form-encoded, `username` = email).
+- `src/App.jsx` — on mount checks `me()`; shows `<AuthForm>` when there's no
+  valid token, else the **Inputs console**: upload → `POST /inputs/upload`,
+  crawl → `POST /inputs/crawl`, saved-sources table with per-row **Run**
+  (`GET /inputs`, `POST /inputs/{id}/run`), and a header with the user's email +
+  **Sign out**. Any `AuthError` mid-session bounces back to the sign-in screen.
 
-Still 🟡: no auth flow, no watchlist/strategy/report screens, no realtime
-(`/ws/signals`). `npm run dev` → `http://localhost:5173`. See WORKFLOW §"Wire the
-frontend".
+CORS allows `:5173`. `npm install && npm run dev` → `http://localhost:5173`;
+`npm run build` → `dist/`.
+
+Still 🟡: no watchlist/strategy/report screens, no realtime (`/ws/signals`), no
+token refresh (token just expires → re-login). See WORKFLOW §Frontend.
 
 ---
 
@@ -489,7 +504,7 @@ frontend".
 
 ## 16. Tests
 
-`pytest -q` → **40 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **48 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.
@@ -501,8 +516,13 @@ frontend".
   image-OCR stub, `sink` routing (docs→ingest, rows→upsert) incl. dry-run, plus
   the frontend helpers: `connector_for_path` extension mapping, `save_upload`
   size/type limits, and the `assert_public_url` SSRF guard.
+- `test_security.py` — bcrypt hash/verify round-trip, JWT encode/decode, tamper
+  and expiry rejection.
+- `test_auth_api.py` — `TestClient` (SQLite `users` table, `get_db` overridden):
+  `/inputs/connectors` is 401 without a token; register → login → reach it with
+  one; wrong password 401; duplicate register 409.
 
-**Gaps:** no API/route tests, no orchestrator integration test, no migration
+**Gaps:** no orchestrator integration test, no migration
 test, no frontend tests.
 
 ---
@@ -520,6 +540,6 @@ test, no frontend tests.
 | `main.py::/ws/signals` | echo placeholder — wire to Redis pub/sub |
 | signal engine | `cooldown_minutes` not enforced; no positions/PNL model |
 | notifications | WhatsApp + Telegram channels |
-| API routers | auth not enforced on resource endpoints |
-| frontend | only the Inputs console exists — no auth flow, watchlist/strategy/report screens, or realtime |
+| API routers | auth enforced on `/inputs/*` only — `watchlists`/`strategies`/`rules`/`runs`/`signals`/`reports` still open |
+| frontend | sign-in + Inputs console only — no watchlist/strategy/report screens, no realtime, no token refresh |
 | observability | no metrics/tracing; logging is plain stdout |

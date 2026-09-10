@@ -1,23 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
-
-const API = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000/api/v1'
-
-async function api(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, opts)
-  const text = await res.text()
-  let body
-  try {
-    body = text ? JSON.parse(text) : null
-  } catch {
-    body = text
-  }
-  if (!res.ok) {
-    const msg = body?.detail ? JSON.stringify(body.detail) : `HTTP ${res.status}`
-    throw new Error(msg)
-  }
-  return body
-}
+import AuthForm from './AuthForm'
+import { API_BASE, AuthError, api, getToken, logout, me } from './api'
 
 function Result({ value }) {
   if (!value) return null
@@ -28,7 +12,7 @@ function Result({ value }) {
   )
 }
 
-function UploadCard() {
+function UploadCard({ onExpire }) {
   const [files, setFiles] = useState(null)
   const [mode, setMode] = useState('ingest_once')
   const [excelMode, setExcelMode] = useState('docs')
@@ -51,6 +35,7 @@ function UploadCard() {
       if (docType) fd.append('doc_type', docType)
       setOut(await api('/inputs/upload', { method: 'POST', body: fd }))
     } catch (err) {
+      if (err instanceof AuthError) return onExpire()
       setOut({ error: String(err.message || err) })
     } finally {
       setBusy(false)
@@ -105,7 +90,7 @@ function UploadCard() {
   )
 }
 
-function CrawlCard() {
+function CrawlCard({ onExpire }) {
   const [url, setUrl] = useState('')
   const [maxDepth, setMaxDepth] = useState(1)
   const [maxPages, setMaxPages] = useState(25)
@@ -129,14 +114,9 @@ function CrawlCard() {
         include_patterns: include.trim() ? [include.trim()] : [],
       }
       if (saveAs.trim()) body.save_as = saveAs.trim()
-      setOut(
-        await api('/inputs/crawl', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        }),
-      )
+      setOut(await api('/inputs/crawl', { method: 'POST', body: JSON.stringify(body) }))
     } catch (err) {
+      if (err instanceof AuthError) return onExpire()
       setOut({ error: String(err.message || err) })
     } finally {
       setBusy(false)
@@ -213,7 +193,7 @@ function CrawlCard() {
   )
 }
 
-function Sources() {
+function Sources({ onExpire }) {
   const [rows, setRows] = useState([])
   const [err, setErr] = useState(null)
 
@@ -222,9 +202,10 @@ function Sources() {
       setRows(await api('/inputs'))
       setErr(null)
     } catch (e) {
+      if (e instanceof AuthError) return onExpire()
       setErr(String(e.message || e))
     }
-  }, [])
+  }, [onExpire])
 
   useEffect(() => {
     load()
@@ -235,6 +216,7 @@ function Sources() {
       await api(`/inputs/${id}/run`, { method: 'POST' })
       setTimeout(load, 800)
     } catch (e) {
+      if (e instanceof AuthError) return onExpire()
       setErr(String(e.message || e))
     }
   }
@@ -297,22 +279,62 @@ function Sources() {
   )
 }
 
-export default function App() {
+function Console({ user, onSignOut }) {
   return (
     <main className="app">
       <header>
         <h1>grd-stk-mkt — inputs</h1>
-        <span className="api">{API}</span>
+        <span className="api">{API_BASE}</span>
+        <span className="spacer" />
+        <span className="who">{user?.email}</span>
+        <button type="button" className="ghost" onClick={onSignOut}>
+          Sign out
+        </button>
       </header>
       <div className="grid">
-        <UploadCard />
-        <CrawlCard />
+        <UploadCard onExpire={onSignOut} />
+        <CrawlCard onExpire={onSignOut} />
       </div>
-      <Sources />
+      <Sources onExpire={onSignOut} />
       <footer>
-        Scheduled runs still come from Celery Beat + a worker. This page just adds
-        upload / crawl-now on top.
+        Scheduled runs still come from Celery Beat + a worker. This page adds
+        sign-in + upload / crawl-now on top.
       </footer>
     </main>
   )
+}
+
+export default function App() {
+  const [state, setState] = useState({ status: 'loading', user: null })
+
+  const check = useCallback(async () => {
+    if (!getToken()) {
+      setState({ status: 'anon', user: null })
+      return
+    }
+    try {
+      const user = await me()
+      setState({ status: 'authed', user })
+    } catch {
+      logout()
+      setState({ status: 'anon', user: null })
+    }
+  }, [])
+
+  useEffect(() => {
+    check()
+  }, [check])
+
+  const signOut = () => {
+    logout()
+    setState({ status: 'anon', user: null })
+  }
+
+  if (state.status === 'loading') {
+    return <div className="boot">…</div>
+  }
+  if (state.status !== 'authed') {
+    return <AuthForm onAuthed={check} />
+  }
+  return <Console user={state.user} onSignOut={signOut} />
 }

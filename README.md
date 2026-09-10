@@ -73,17 +73,24 @@ React frontend (later)
 ## Quick start
 
 ```bash
-cp .env.example .env                # then edit secrets
+cp .env.example .env                # then edit secrets (SECRET_KEY!)
 docker compose up -d postgres redis qdrant
 pip install -e ".[dev]"
 alembic upgrade head
-python scripts/seed_data.py          # demo watchlist + rules
+python scripts/seed_data.py          # demo data + login: demo@grd-stk-mkt.local / demo12345
 uvicorn app.main:app --reload        # http://localhost:8000/docs
 
 # workers (separate shells)
 celery -A app.workers.celery_app worker -l info
 celery -A app.workers.celery_app beat -l info
+
+# frontend (separate shell) — sign in with the demo login
+cd frontend/my-react-app && npm install && npm run dev   # http://localhost:5173
 ```
+
+`/inputs/*` needs a bearer token — the frontend handles it after sign-in; for
+curl, `POST /auth/login` (`username`=email) then send `Authorization: Bearer …`.
+Bootstrap a user without the API: `python scripts/create_user.py EMAIL PASSWORD`.
 
 Or run everything in containers:
 

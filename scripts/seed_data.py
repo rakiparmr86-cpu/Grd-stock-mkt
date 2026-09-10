@@ -19,9 +19,14 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.core.database import session_scope
+from app.core.security import hash_password
 from app.models.config import Rule, Strategy, Threshold, Watchlist, WatchlistItem
 from app.models.inputs import InputSource
 from app.models.market import Instrument
+from app.models.user import User
+
+DEMO_EMAIL = "demo@grd-stk-mkt.local"
+DEMO_PASSWORD = "1223456"
 
 TICKERS = ["RELIANCE", "TCS", "INFY"]
 MARKET_DIR = Path("./data/market")
@@ -109,6 +114,18 @@ def main() -> None:
     )
     print(f"  wrote {note}")
 
+    # demo login (idempotent — always ensured)
+    with session_scope() as db:
+        user = db.execute(
+            select(User).where(User.email == DEMO_EMAIL)
+        ).scalar_one_or_none()
+        if user is None:
+            db.add(User(email=DEMO_EMAIL, full_name="Demo User",
+                        hashed_password=hash_password(DEMO_PASSWORD), is_superuser=True))
+            print(f"  demo user: {DEMO_EMAIL} / {DEMO_PASSWORD}")
+        else:
+            print(f"  demo user already exists: {DEMO_EMAIL}")
+
     with session_scope() as db:
         if db.execute(select(Strategy).where(Strategy.name == "Mean reversion + trend")
                       ).scalar_one_or_none():
@@ -158,8 +175,10 @@ def main() -> None:
     print("  seeded watchlist + strategy + rules + input sources")
     print("\nNext:")
     print("  uvicorn app.main:app --reload")
-    print("  curl -X POST localhost:8000/api/v1/runs -H 'content-type: application/json' \\")
-    print('       -d \'{"ticker":"RELIANCE","strategy_id":1,"async_":false}\'')
+    print(f"  # log in as {DEMO_EMAIL} / {DEMO_PASSWORD} (frontend, or:)")
+    print("  curl -s -X POST localhost:8000/api/v1/auth/login \\")
+    print(f"       -d 'username={DEMO_EMAIL}&password={DEMO_PASSWORD}'")
+    print("  # then send the token as: -H 'Authorization: Bearer <access_token>'")
 
 
 if __name__ == "__main__":

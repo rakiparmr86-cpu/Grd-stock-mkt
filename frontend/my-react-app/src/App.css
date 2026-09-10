@@ -55,6 +55,70 @@ body {
   font-size: 12px;
   color: var(--muted);
 }
+.app header .spacer {
+  flex: 1;
+}
+.app header .who {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.boot {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+/* auth screen */
+.auth-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 20px;
+}
+.card.auth {
+  width: 340px;
+  max-width: 100%;
+}
+.card.auth h1 {
+  font-size: 18px;
+  margin: 0 0 14px;
+}
+.card.auth label {
+  margin-bottom: 10px;
+}
+.card.auth input {
+  width: 100%;
+}
+.card.auth button[type='submit'],
+.card.auth > button {
+  width: 100%;
+  margin-top: 4px;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.tabs button {
+  flex: 1;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  padding: 7px 0;
+}
+.tabs button.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tiny {
+  font-size: 11px;
+  color: var(--muted);
+}
 
 .grid {
   display: grid;

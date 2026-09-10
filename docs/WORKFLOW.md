@@ -31,11 +31,12 @@ pip install -e ".[dev]"
 # 4. database schema
 alembic upgrade head
 
-# 5. demo data (watchlist + strategy + rules + synthetic OHLCV + one research note)
+# 5. demo data + a demo login (demo@grd-stk-mkt.local / demo12345)
 python scripts/seed_data.py
+#    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 16 passed, 1 skipped (or 17 passed with langgraph)
+pytest -q            # expect: 48 passed, 1 skipped (49 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -43,7 +44,7 @@ Frontend (optional, separate shell):
 ```bash
 cd frontend/my-react-app
 npm install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5173  → sign in with the demo login
 ```
 
 > `command.txt` in the repo still lists the old path `D:\newdata\Grd-stk-mkt`.
@@ -200,9 +201,11 @@ Each recipe lists the files to touch **in order**, then the "done when" checks.
 2. `app/api/v1/<area>.py` — the route; use `DbSession` and (to protect it)
    `user: CurrentUser`.
 3. `app/api/v1/router.py` — `include_router` if it's a new area.
-4. `tests/` — add a `TestClient` test (no HTTP route tests exist yet — you'd be
-   starting that file).
-5. Update `TECHNICAL.md` §8 table.
+4. `tests/` — add a `TestClient` test (see `tests/test_auth_api.py` for the
+   SQLite + `get_db`-override fixture; JSONB-heavy tables need Postgres instead).
+5. To require a login, add `dependencies=[Depends(get_current_user)]` to the
+   `include_router(...)` call in `app/api/v1/router.py` (see `_auth` there).
+6. Update `TECHNICAL.md` §8 table.
 
 ### Add / change a DB model
 1. Edit the model under `app/models/`; if it's a new module, import it in
@@ -235,32 +238,38 @@ Each recipe lists the files to touch **in order**, then the "done when" checks.
    absent).
 
 ### Frontend
-- `frontend/my-react-app/src/App.jsx` is a **working Inputs console** — file
-  upload (`POST /inputs/upload`), crawl-a-URL (`POST /inputs/crawl`), and a
-  saved-sources table with per-row Run. Single file, plain `fetch`.
-- API base: `VITE_API_BASE` env (default `http://localhost:8000/api/v1`). CORS
-  in `app/core/config.py::cors_origins` already allows `:5173`.
-- `npm install` then `npm run dev` → `http://localhost:5173`; `npm run build`
-  emits `dist/`.
-- **Adding a screen:** keep the `api()` helper in `App.jsx` (or lift it to
-  `src/api.js`), add a component, mount it in `App`. When you build the auth
-  flow, get a token from `POST /auth/login` and send `Authorization: Bearer`.
-- Next screens worth building: watchlist list, trigger-run button, run detail
-  with the agent-decisions timeline, rendered report iframe
-  (`GET /reports/{id}/html`). Live signals: `/ws/signals` (still an echo stub).
+- Files: `src/api.js` (base URL + token in `localStorage` + `api()` wrapper +
+  `login/register/me/logout`), `src/AuthForm.jsx` (sign-in / create-account),
+  `src/App.jsx` (auth gate → Inputs console: upload, crawl, sources table).
+- Flow: no token → `<AuthForm>`; `register` (JSON) → auto `login` (form-encoded,
+  `username` = email) → token stored → `me()` confirms → console. A 401 from any
+  call throws `AuthError`, clears the token, and returns to sign-in.
+- API base: `VITE_API_BASE` (default `http://localhost:8000/api/v1`); CORS in
+  `app/core/config.py::cors_origins` allows `:5173`.
+- `npm install && npm run dev` → `http://localhost:5173`; `npm run build` → `dist/`.
+- **Adding a screen:** import `api` from `./api` (token is attached for you),
+  add a component, mount it in `App`'s `Console`. New protected endpoints just
+  work; handle `AuthError` by calling the passed `onExpire`/`onSignOut`.
+- Next screens: watchlist list, trigger-run button, run detail with the
+  agent-decisions timeline, report iframe (`GET /reports/{id}/html`). Live
+  signals: `/ws/signals` (still an echo stub).
 
 ---
 
 ## 5. Bigger pieces still to build (pick up in roughly this order)
 
-1. **Enforce auth** on resource routers (`user: CurrentUser`) + a `users` seed.
+1. **Enforce auth** on the remaining resource routers (`watchlists`,
+   `strategies`, `rules`, `runs`, `signals`, `reports`) — `/inputs/*` and a
+   `users` seed are done; copy the router-level `dependencies=_auth` pattern in
+   `app/api/v1/router.py`.
 2. **Real WebSocket** — publish from `analysis` tasks to a Redis channel;
    `/ws/signals` subscribes and streams.
 3. **Positions / PnL model** so `sell` signals mean something; enforce
    `rule.cooldown_minutes`.
 4. **Real market-data feed** (licensed vendor via `api_provider`) replacing the
    NSE snapshot.
-5. **Frontend app** (§4 recipe is the on-ramp).
+5. **Frontend app** — sign-in + Inputs console exist; next: watchlist/strategy
+   editors, run history + agent-decision timeline, report viewer (§Frontend recipe).
 6. **LLM hardening** — retries, timeouts, token/cost logging into
    `agent_decisions.tokens`.
 7. **Observability** — structured logs, Prometheus metrics, task dashboards.
@@ -315,6 +324,9 @@ Run through this **every time** you finish a feature or fix:
 | `alembic upgrade` fails on `CREATE EXTENSION timescaledb` | non-superuser DB role — migration catches this and continues without hypertables; grant the extension or use the `timescale/timescaledb` image |
 | emails "sent" but not received | check MailHog UI at `http://localhost:8025` (dev never sends real mail) |
 | `health/ready` shows `qdrant: error` | container not up, or `QDRANT_URL` wrong (in Docker it's `http://qdrant:6333`) |
+| frontend shows the sign-in screen and login fails | API not running / wrong `VITE_API_BASE`, or no user yet — `python scripts/seed_data.py` (demo login) or `scripts/create_user.py` |
+| `/inputs/*` returns 401 from curl | send `-H "Authorization: Bearer <token>"`; get the token from `POST /auth/login` (form fields `username`, `password`) |
+| `pip install` pulls `bcrypt` 5.x and hashing errors | fixed — `security.py` calls `bcrypt` directly (passlib was dropped); ensure `bcrypt>=4.0` is installed |
 
 ---
 
@@ -322,14 +334,23 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — auth: `/inputs/*` now requires a bearer token (router-level
+  `Depends(get_current_user)`). Password hashing switched from passlib to
+  `bcrypt` directly (`security.py`) — passlib 1.7.4 breaks on bcrypt ≥ 5;
+  `pyproject` dep `passlib[bcrypt]` → `bcrypt>=4.0`. `scripts/create_user.py`
+  added; `seed_data.py` seeds `demo@grd-stk-mkt.local` / `demo12345`. Frontend:
+  `src/api.js` (token + `api()` wrapper) + `src/AuthForm.jsx` (login / register)
+  + `App.jsx` auth gate. Tests: +8 (`test_security.py`, `test_auth_api.py`);
+  `pytest -q` → 48 pass, 1 skip. Docs: TECHNICAL §2/§8/§14/§16/§17, WORKFLOW,
+  CONFIGURATION, OVERVIEW.
 - 2026-09-10 — inputs (frontend): `POST /inputs/upload` (multipart CSV/Excel/
   PDF/image → ad-hoc ingest or saved source) and `POST /inputs/crawl` (URL →
   web_crawler, SSRF-guarded, `save_as` optional). New `run_adhoc_connector`
   task, `inputs/upload.py` + `inputs/ssrf.py`, settings `UPLOADS_DIR` /
   `UPLOAD_MAX_MB` / `CRAWLER_ALLOW_PRIVATE`, CORS `:5173`. `frontend/App.jsx`
   rebuilt as an Inputs console (upload / crawl / sources table). Tests: +12
-  (`pytest -q` → 40 pass, 1 skip). Docs: TECHNICAL §8/§11a/§14, CONFIGURATION,
-  DATA_FORMATS.
+  (`pytest -q` → 40 pass, 1 skip). Docs: OVERVIEW (plain-language "two ways in"
+  + Inputs page), TECHNICAL §8/§11a/§14, CONFIGURATION, DATA_FORMATS.
 - 2026-09-10 — docs: added `CONFIGURATION.md` (env-var reference), `RULES.md`
   (signal-rule cookbook), `DATA_FORMATS.md` (connector input formats + auth).
 - 2026-09-10 — inputs: pluggable input layer (`app/services/inputs/`) — one

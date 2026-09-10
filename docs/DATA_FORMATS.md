@@ -150,6 +150,12 @@ Two endpoints turn a browser action into an input run without pre-defining a
 source. They still execute on the **Celery worker** (async) — Beat/worker must be
 running, or use the saved-source `?async_=false` path.
 
+**All `/inputs/*` routes require a bearer token.** Get one from
+`POST /auth/login` (form fields `username` = email, `password`) and send it as
+`Authorization: Bearer <access_token>`. The frontend does this automatically once
+you sign in; seed a login with `python scripts/seed_data.py` (demo user) or
+`python scripts/create_user.py EMAIL PASSWORD`.
+
 ### `POST /inputs/upload`  (multipart/form-data)
 
 | Field | Values | Notes |
@@ -169,7 +175,11 @@ format (see the sections above). Files are stored under `UPLOADS_DIR` with a
 sanitised, uuid-prefixed name.
 
 ```bash
-curl -F "files=@AR2024.pdf" -F "files=@prices.csv" \
+TOKEN=$(curl -s -X POST localhost:8000/api/v1/auth/login \
+        -d 'username=demo@grd-stk-mkt.local&password=demo12345' | jq -r .access_token)
+
+curl -H "Authorization: Bearer $TOKEN" \
+     -F "files=@AR2024.pdf" -F "files=@prices.csv" \
      -F "mode=ingest_once" -F "row_kind=ohlcv" \
      localhost:8000/api/v1/inputs/upload
 ```
