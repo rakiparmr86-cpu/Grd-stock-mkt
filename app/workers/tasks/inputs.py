@@ -49,6 +49,21 @@ def run_input_source(self, source_id: int) -> dict:
     return {"source_id": source_id, "name": name, "status": status, "stats": stats}
 
 
+@celery_app.task(name="app.workers.tasks.inputs.run_adhoc_connector")
+def run_adhoc_connector(connector: str, config: dict, source_name: str) -> dict:
+    """One-off run of a connector that isn't backed by a saved ``InputSource``
+    (frontend file upload / 'crawl this URL now')."""
+    try:
+        conn = get_connector(connector, config)
+        stats = run_connector(conn, source_name=source_name)
+        status = "error" if stats.get("errors") else "ok"
+    except Exception as exc:  # noqa: BLE001
+        log.exception("ad-hoc connector %s failed", source_name)
+        stats, status = {"errors": [str(exc)]}, "error"
+    return {"source_name": source_name, "connector": connector,
+            "status": status, "stats": stats}
+
+
 @celery_app.task(name="app.workers.tasks.inputs.run_all_active_input_sources")
 def run_all_active_input_sources() -> dict:
     with session_scope() as db:

@@ -238,6 +238,8 @@ Base prefix `/api/v1`. Interactive docs at `/docs`.
 | `GET /inputs/connectors` | available connector types + their config keys |
 | `GET/POST /inputs` · `GET/PATCH/DELETE /inputs/{id}` | CRUD for saved input sources (connector + config + optional cron) |
 | `POST /inputs/{id}/run` · `POST /inputs/test` | run a saved source (async by default); `/test` dry-runs a connector config with capped results, no writes |
+| `POST /inputs/upload` | **frontend**: multipart file upload (CSV/Excel/PDF/image). `mode=ingest_once` queues an ad-hoc ingest per file; `mode=save_source` also creates an `InputSource` row (optionally scheduled) |
+| `POST /inputs/crawl` | **frontend**: start a web crawl from URL(s). SSRF-guarded (private/loopback hosts refused unless `CRAWLER_ALLOW_PRIVATE`); `auth` block names env vars, no raw secrets; `save_as` persists it as a source |
 | `POST /runs` | trigger analysis for a ticker; `async_=true` → Celery task id, `false` → runs inline and returns the result |
 | `GET /runs` · `GET /runs/{id}` · `GET /runs/{id}/decisions` | run history + per-agent audit |
 | `GET /signals` | filter by `ticker` / `run_id` |
@@ -388,9 +390,25 @@ connector.fetch() ─► ConnectorResult(kind="rows", rows=<df>, row_kind="ohlcv
 `app/models/inputs.py`): `name`, `connector`, `kind`, `config` (JSONB),
 `is_active`, `schedule_cron`, plus `last_run_at` / `last_status` / `last_error`
 / `last_stats`. Tasks in `app/workers/tasks/inputs.py`:
-`run_input_source(source_id)` and `run_all_active_input_sources()`. Beat sweeps
-all active sources hourly (`sweep-input-sources`); any source with a
-`schedule_cron` also gets its own Beat entry.
+`run_input_source(source_id)`, `run_all_active_input_sources()`, and
+`run_adhoc_connector(connector, config, source_name)` (one-off, not backed by a
+row — used by upload / crawl-now). Beat sweeps all active sources hourly
+(`sweep-input-sources`); any source with a `schedule_cron` also gets its own
+Beat entry.
+
+**Frontend-driven inputs** — `app/services/inputs/upload.py` +
+`app/services/inputs/ssrf.py`:
+
+- `save_upload(filename, bytes)` — sanitises the name, uuid-prefixes, enforces
+  `UPLOAD_MAX_MB` and an extension allowlist, writes under `UPLOADS_DIR`.
+- `connector_for_path(path, ...)` — extension → `(connector, kind, base_config)`:
+  `.csv/.tsv`→`csv` rows, `.xlsx/.xls`→`excel` (docs by default, `excel_mode=rows`
+  for prices), `.pdf`→`pdf` docs, images→`image_ocr` docs.
+- `assert_public_url(url)` — rejects non-http(s) and hosts resolving to
+  loopback / private / link-local / reserved ranges unless
+  `CRAWLER_ALLOW_PRIVATE=true`. Applied to every URL in `POST /inputs/crawl`.
+- `POST /inputs/upload` and `POST /inputs/crawl` (see §8) turn these into either
+  an ad-hoc Celery run or a saved `InputSource`.
 
 ---
 
@@ -438,9 +456,17 @@ all active sources hourly (`sweep-input-sources`); any source with a
 
 ## 14. Frontend  🟡
 
-`frontend/my-react-app/` — Vite 8 + React 19 + oxlint. Default scaffold only
-(`App.jsx`, `main.jsx`, assets). **Nothing calls the API yet.** No router, no
-data layer, no auth wiring. See WORKFLOW §"Wire the frontend".
+`frontend/my-react-app/` — Vite 8 + React 19 + oxlint.
+
+`src/App.jsx` is a working **Inputs console** (single file, plain `fetch`, no
+router / state lib): upload files → `POST /inputs/upload`, crawl a URL →
+`POST /inputs/crawl`, and a saved-sources table with a per-row **Run** button
+(`GET /inputs`, `POST /inputs/{id}/run`). API base from `VITE_API_BASE`
+(default `http://localhost:8000/api/v1`; CORS allows `:5173`).
+
+Still 🟡: no auth flow, no watchlist/strategy/report screens, no realtime
+(`/ws/signals`). `npm run dev` → `http://localhost:5173`. See WORKFLOW §"Wire the
+frontend".
 
 ---
 
@@ -463,7 +489,7 @@ data layer, no auth wiring. See WORKFLOW §"Wire the frontend".
 
 ## 16. Tests
 
-`pytest -q` → **28 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **40 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.
@@ -472,7 +498,9 @@ data layer, no auth wiring. See WORKFLOW §"Wire the frontend".
 - `test_agents_graph.py` — graph runs offline; skipped analysts don't execute.
 - `test_inputs.py` — connector registry + validation, auth strategy selection,
   crawler link-following / domain + page caps / `_strip_html`, CSV→OHLCV rows,
-  image-OCR stub, and `sink` routing (docs→ingest, rows→upsert) incl. dry-run.
+  image-OCR stub, `sink` routing (docs→ingest, rows→upsert) incl. dry-run, plus
+  the frontend helpers: `connector_for_path` extension mapping, `save_upload`
+  size/type limits, and the `assert_public_url` SSRF guard.
 
 **Gaps:** no API/route tests, no orchestrator integration test, no migration
 test, no frontend tests.
@@ -493,5 +521,5 @@ test, no frontend tests.
 | signal engine | `cooldown_minutes` not enforced; no positions/PNL model |
 | notifications | WhatsApp + Telegram channels |
 | API routers | auth not enforced on resource endpoints |
-| frontend | everything past the Vite scaffold |
+| frontend | only the Inputs console exists — no auth flow, watchlist/strategy/report screens, or realtime |
 | observability | no metrics/tracing; logging is plain stdout |

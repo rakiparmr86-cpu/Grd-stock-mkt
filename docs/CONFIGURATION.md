@@ -84,10 +84,13 @@ recreate the collection or ingests will fail.
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `DOCUMENTS_DIR` | `./data/documents` | Folder the `pdf` connector / `ingest_pending_documents` scan. |
+| `UPLOADS_DIR` | `./data/uploads` | Where `POST /inputs/upload` stores browser uploads (git-ignored). |
+| `UPLOAD_MAX_MB` | `25` | Per-file upload size limit; larger files are rejected 422. |
 | `OCR_BACKEND` | `stub` | Default backend for the `image_ocr` connector when its config doesn't override: `stub` (no text) \| `tesseract` (needs `pip install ".[ocr]"`) \| `api`. |
 | `OCR_LANG` | `eng` | Tesseract language pack. |
 | `CRAWLER_USER_AGENT` | `GrdStkMktCrawler/1.0` | Default UA for the `web_crawler` connector. |
 | `CRAWLER_DEFAULT_DELAY_SECONDS` | `1.0` | Politeness delay between crawler requests. |
+| `CRAWLER_ALLOW_PRIVATE` | `false` | If `true`, `POST /inputs/crawl` will fetch private / loopback / link-local hosts. **Dev only** — leave `false` in any shared env (SSRF protection). |
 
 **Connector auth secrets** are *not* settings — each source's `config.auth`
 block names env vars (e.g. `GRDWORLD_USER`, `GRDWORLD_PASS`,

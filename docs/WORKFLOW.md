@@ -234,16 +234,20 @@ Each recipe lists the files to touch **in order**, then the "done when" checks.
    recreate the collection (`QdrantStore.ensure_collection` only creates when
    absent).
 
-### Wire the frontend to the API
-1. `frontend/my-react-app/.env` — `VITE_API_BASE=http://localhost:8000/api/v1`.
-2. Add a fetch layer (`src/api/client.js`) — bearer token from `/auth/login`.
-3. `app/main.py` CORS `allow_origins` already includes `http://localhost:3000`;
-   add `:5173` (Vite default) in `app/core/config.py::cors_origins` or `.env`.
-4. First screens worth building: watchlist list, trigger-run button, run detail
-   with the agent-decisions timeline, rendered report iframe
-   (`GET /reports/{id}/html`).
-5. For live signals, connect a WebSocket to `/ws/signals` (note: server side is
-   still an echo stub — see next section).
+### Frontend
+- `frontend/my-react-app/src/App.jsx` is a **working Inputs console** — file
+  upload (`POST /inputs/upload`), crawl-a-URL (`POST /inputs/crawl`), and a
+  saved-sources table with per-row Run. Single file, plain `fetch`.
+- API base: `VITE_API_BASE` env (default `http://localhost:8000/api/v1`). CORS
+  in `app/core/config.py::cors_origins` already allows `:5173`.
+- `npm install` then `npm run dev` → `http://localhost:5173`; `npm run build`
+  emits `dist/`.
+- **Adding a screen:** keep the `api()` helper in `App.jsx` (or lift it to
+  `src/api.js`), add a component, mount it in `App`. When you build the auth
+  flow, get a token from `POST /auth/login` and send `Authorization: Bearer`.
+- Next screens worth building: watchlist list, trigger-run button, run detail
+  with the agent-decisions timeline, rendered report iframe
+  (`GET /reports/{id}/html`). Live signals: `/ws/signals` (still an echo stub).
 
 ---
 
@@ -318,6 +322,14 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — inputs (frontend): `POST /inputs/upload` (multipart CSV/Excel/
+  PDF/image → ad-hoc ingest or saved source) and `POST /inputs/crawl` (URL →
+  web_crawler, SSRF-guarded, `save_as` optional). New `run_adhoc_connector`
+  task, `inputs/upload.py` + `inputs/ssrf.py`, settings `UPLOADS_DIR` /
+  `UPLOAD_MAX_MB` / `CRAWLER_ALLOW_PRIVATE`, CORS `:5173`. `frontend/App.jsx`
+  rebuilt as an Inputs console (upload / crawl / sources table). Tests: +12
+  (`pytest -q` → 40 pass, 1 skip). Docs: TECHNICAL §8/§11a/§14, CONFIGURATION,
+  DATA_FORMATS.
 - 2026-09-10 — docs: added `CONFIGURATION.md` (env-var reference), `RULES.md`
   (signal-rule cookbook), `DATA_FORMATS.md` (connector input formats + auth).
 - 2026-09-10 — inputs: pluggable input layer (`app/services/inputs/`) — one

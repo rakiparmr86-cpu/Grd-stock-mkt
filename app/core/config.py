@@ -57,10 +57,14 @@ class Settings(BaseSettings):
 
     # Input layer (pluggable connectors → market data / document library)
     documents_dir: str = "./data/documents"
+    uploads_dir: str = "./data/uploads"
+    upload_max_mb: int = 25
     ocr_backend: Literal["stub", "tesseract", "api"] = "stub"
     ocr_lang: str = "eng"
     crawler_user_agent: str = "GrdStkMktCrawler/1.0"
     crawler_default_delay_seconds: float = 1.0
+    # block ad-hoc crawls of private / loopback / link-local hosts (SSRF guard)
+    crawler_allow_private: bool = False
 
     # Notifications
     smtp_host: str = "localhost"
@@ -75,7 +79,9 @@ class Settings(BaseSettings):
     reports_dir: str = "./data/reports"
     reports_enable_pdf: bool = False
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property

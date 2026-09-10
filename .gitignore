@@ -20,6 +20,7 @@ env/
 htmlcov/
 
 data/reports/
+data/uploads/
 data/market/*.csv
 data/market/*.xlsx
 data/documents/*

@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 
 from app.api.deps import DbSession
 from app.models.inputs import InputSource
 from app.schemas.inputs import (
+    CrawlRequest,
     InputRunResponse,
     InputSourceCreate,
     InputSourceOut,
     InputSourceUpdate,
     InputTestRequest,
+    UploadItemResult,
+    UploadResponse,
 )
 from app.services.inputs.registry import get_connector, list_connectors
 from app.services.inputs.sink import run_connector
+from app.services.inputs.ssrf import UnsafeUrlError, assert_public_url
+from app.services.inputs.upload import UploadError, connector_for_path, save_upload
 
 router = APIRouter()
 
@@ -100,6 +107,123 @@ def run_source(source_id: int, db: DbSession, async_: bool = True) -> InputRunRe
     src.last_status = "error" if stats.get("errors") else "ok"
     db.commit()
     return InputRunResponse(mode="sync", source_id=source_id, stats=stats)
+
+
+# ── frontend-driven inputs ─────────────────────────────────────────
+@router.post("/upload", response_model=UploadResponse)
+async def upload_files(
+    db: DbSession,
+    files: Annotated[list[UploadFile], File(description="one or more data/document files")],
+    mode: Annotated[str, Form()] = "ingest_once",       # ingest_once | save_source
+    excel_mode: Annotated[str, Form()] = "docs",         # docs | rows
+    row_kind: Annotated[str, Form()] = "ohlcv",          # ohlcv | fundamental
+    doc_type: Annotated[str | None, Form()] = None,
+    ticker: Annotated[str | None, Form()] = None,
+    name_prefix: Annotated[str | None, Form()] = None,   # for save_source
+    schedule_cron: Annotated[str | None, Form()] = None,
+    run_now: Annotated[bool, Form()] = True,
+) -> UploadResponse:
+    """Accept browser uploads (CSV / Excel / PDF / images).
+
+    ``mode=ingest_once`` (default) queues a one-off ingest per file.
+    ``mode=save_source`` also creates a reusable ``InputSource`` row (optionally
+    scheduled) pointed at the stored file.
+    """
+    if mode not in ("ingest_once", "save_source"):
+        raise HTTPException(422, "mode must be 'ingest_once' or 'save_source'")
+
+    from app.workers.tasks.inputs import run_adhoc_connector, run_input_source
+
+    items: list[UploadItemResult] = []
+    for uf in files:
+        try:
+            data = await uf.read()
+            path = save_upload(uf.filename or "upload.bin", data)
+            connector, kind, cfg = connector_for_path(
+                path, excel_mode=excel_mode, row_kind=row_kind,
+                doc_type=doc_type, ticker=ticker,
+            )
+        except UploadError as exc:
+            items.append(UploadItemResult(
+                filename=uf.filename or "?", stored_path="", connector="", kind="docs",
+                mode=mode, error=str(exc),
+            ))
+            continue
+
+        res = UploadItemResult(filename=uf.filename or path.name, stored_path=str(path),
+                               connector=connector, kind=kind, mode=mode)
+        if mode == "save_source":
+            base = (name_prefix or "Upload").strip()
+            src = InputSource(
+                name=f"{base}: {path.name}", connector=connector,
+                kind=kind, config=cfg, is_active=True, schedule_cron=schedule_cron,
+            )
+            db.add(src)
+            db.commit()
+            db.refresh(src)
+            res.source_id = src.id
+            if run_now:
+                res.task_id = run_input_source.delay(src.id).id
+        elif run_now:
+            res.task_id = run_adhoc_connector.delay(
+                connector, cfg, f"upload:{path.name}"
+            ).id
+        items.append(res)
+
+    return UploadResponse(items=items)
+
+
+@router.post("/crawl", response_model=InputRunResponse)
+def crawl_url(payload: CrawlRequest, db: DbSession) -> InputRunResponse:
+    """Kick off a web crawl from URL(s) supplied by the frontend.
+
+    Secrets never travel in this body — ``auth`` names environment variables
+    (see DATA_FORMATS.md). Private / loopback hosts are refused unless
+    ``CRAWLER_ALLOW_PRIVATE=true``.
+    """
+    for url in payload.urls:
+        try:
+            assert_public_url(url)
+        except UnsafeUrlError as exc:
+            raise HTTPException(422, f"unsafe URL {url!r}: {exc}") from exc
+
+    cfg: dict = {
+        "start_urls": payload.urls,
+        "max_depth": payload.max_depth,
+        "max_pages": payload.max_pages,
+        "same_domain_only": payload.same_domain_only,
+        "include_patterns": payload.include_patterns,
+        "exclude_patterns": payload.exclude_patterns,
+        "doc_type": payload.doc_type,
+    }
+    if payload.allowed_domains:
+        cfg["allowed_domains"] = payload.allowed_domains
+    if payload.delay_seconds is not None:
+        cfg["delay_seconds"] = payload.delay_seconds
+    if payload.auth:
+        cfg["auth"] = payload.auth
+
+    # validate the config now (raises on bad shape)
+    try:
+        get_connector("web_crawler", cfg)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(422, f"invalid crawl config: {exc}") from exc
+
+    from app.workers.tasks.inputs import run_adhoc_connector, run_input_source
+
+    if payload.save_as:
+        src = InputSource(
+            name=payload.save_as, connector="web_crawler", kind="docs",
+            config=cfg, is_active=payload.is_active, schedule_cron=payload.schedule_cron,
+        )
+        db.add(src)
+        db.commit()
+        db.refresh(src)
+        task = run_input_source.delay(src.id)
+        return InputRunResponse(mode="async", task_id=task.id, source_id=src.id)
+
+    task = run_adhoc_connector.delay("web_crawler", cfg, f"crawl:{payload.urls[0]}")
+    return InputRunResponse(mode="async", task_id=task.id)
 
 
 @router.post("/test", response_model=InputRunResponse)

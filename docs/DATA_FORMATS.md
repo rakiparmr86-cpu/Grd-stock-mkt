@@ -144,6 +144,58 @@ concatenated into the document body; `meta_fields` are copied to metadata.
 
 ---
 
+## From the frontend: upload & crawl-now
+
+Two endpoints turn a browser action into an input run without pre-defining a
+source. They still execute on the **Celery worker** (async) — Beat/worker must be
+running, or use the saved-source `?async_=false` path.
+
+### `POST /inputs/upload`  (multipart/form-data)
+
+| Field | Values | Notes |
+| --- | --- | --- |
+| `files` | one or more | `.csv .tsv .xlsx .xls .xlsm .pdf .png .jpg .jpeg .tif .tiff .bmp .webp`; ≤ `UPLOAD_MAX_MB` each |
+| `mode` | `ingest_once` (default) \| `save_source` | `save_source` also creates an `InputSource` row |
+| `excel_mode` | `docs` (default) \| `rows` | how `.xlsx` is read |
+| `row_kind` | `ohlcv` (default) \| `fundamental` | for CSV/Excel rows |
+| `doc_type` | free text | overrides auto-detection for doc-type files |
+| `ticker` | e.g. `RELIANCE` | when a rows file has no ticker column |
+| `name_prefix`, `schedule_cron` | | only used with `mode=save_source` |
+| `run_now` | `true` (default) | queue the run immediately |
+
+Extension → connector: `.csv/.tsv`→`csv`, `.xlsx/.xls/.xlsm`→`excel`,
+`.pdf`→`pdf`, images→`image_ocr`. File contents must match that connector's
+format (see the sections above). Files are stored under `UPLOADS_DIR` with a
+sanitised, uuid-prefixed name.
+
+```bash
+curl -F "files=@AR2024.pdf" -F "files=@prices.csv" \
+     -F "mode=ingest_once" -F "row_kind=ohlcv" \
+     localhost:8000/api/v1/inputs/upload
+```
+
+### `POST /inputs/crawl`  (application/json)
+
+```jsonc
+{
+  "urls": ["https://console.grdworld.com/Schedular/Index"],
+  "max_depth": 1, "max_pages": 25, "same_domain_only": true,
+  "include_patterns": ["/Schedular/"], "exclude_patterns": [],
+  "auth": { ...env-var-named block, see below... },
+  "save_as": "GRD console",        // omit → one-off; set → saved InputSource
+  "schedule_cron": "0 * * * *"     // only with save_as
+}
+```
+
+- Every URL is checked by the **SSRF guard**: `http`/`https` only, and the host
+  must not resolve to loopback / private / link-local / reserved space
+  (override with `CRAWLER_ALLOW_PRIVATE=true`, dev only).
+- `auth` uses the same blocks as below — **it names env vars, you never put a
+  password in this request body.** The vars must exist in the worker's env.
+- Response: `{"mode": "async", "task_id": "...", "source_id": <if saved>}`.
+
+---
+
 ## Auth
 
 For `web_crawler` and `http_api`. **Credentials are read from environment
@@ -174,4 +226,5 @@ in the *worker* process environment.
 | `data/market/*.xlsx` | `excel` connector |
 | `data/documents/**` | `pdf` connector, `ingest_pending_documents` task |
 | `data/documents/.ingested.txt` | ledger of already-ingested files (delete a line to re-ingest) |
+| `data/uploads/` | files from `POST /inputs/upload` (git-ignored) |
 | `data/reports/` | rendered reports (git-ignored) |

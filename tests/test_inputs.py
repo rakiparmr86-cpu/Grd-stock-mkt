@@ -10,6 +10,8 @@ from app.services.inputs.auth import BearerAuth, FormLoginAuth, NoAuth, build_au
 from app.services.inputs.base import ConfigError, InputConnector
 from app.services.inputs.registry import list_connectors
 from app.services.inputs.sink import run_connector
+from app.services.inputs.ssrf import UnsafeUrlError, assert_public_url
+from app.services.inputs.upload import UploadError, connector_for_path, save_upload
 from app.services.inputs.web_crawler import WebCrawlerConnector, _strip_html
 
 
@@ -180,3 +182,77 @@ def test_run_connector_dry_run_writes_nothing(monkeypatch):
     monkeypatch.setattr("app.services.inputs.sink.upsert_ohlcv", _boom)
     stats = run_connector(_StubConnector({}), source_name="unit", dry_run=True)
     assert stats["results"] == 2 and stats["docs"] == 1
+
+
+# ── frontend: upload helpers ──────────────────────────────────────
+@pytest.mark.parametrize(
+    "fname,connector,kind",
+    [
+        ("x.csv", "csv", "rows"),
+        ("x.tsv", "csv", "rows"),
+        ("x.xlsx", "excel", "docs"),          # excel_mode default = docs
+        ("x.pdf", "pdf", "docs"),
+        ("scan.PNG", "image_ocr", "docs"),
+        ("p.jpeg", "image_ocr", "docs"),
+    ],
+)
+def test_connector_for_path_maps_extension(fname, connector, kind):
+    name, k, cfg = connector_for_path(fname)
+    assert (name, k) == (connector, kind)
+    assert cfg  # non-empty base config
+
+
+def test_connector_for_path_excel_rows_mode():
+    name, kind, cfg = connector_for_path("b.xlsx", excel_mode="rows", row_kind="fundamental")
+    assert name == "excel" and kind == "rows"
+    assert cfg["mode"] == "rows" and cfg["row_kind"] == "fundamental"
+
+
+def test_connector_for_path_rejects_unknown():
+    with pytest.raises(UploadError):
+        connector_for_path("notes.docx")
+
+
+def test_save_upload_writes_file(tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "uploads_dir", str(tmp_path))
+    dest = save_upload("My Report (v2).pdf", b"%PDF-1.4 ...")
+    assert dest.exists() and dest.read_bytes().startswith(b"%PDF")
+    assert dest.suffix == ".pdf" and " " not in dest.name  # sanitised
+
+
+def test_save_upload_rejects_big_and_bad_type(tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "uploads_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "upload_max_mb", 1)
+    with pytest.raises(UploadError):
+        save_upload("big.csv", b"x" * (2 * 1024 * 1024))
+    with pytest.raises(UploadError):
+        save_upload("evil.exe", b"MZ")
+
+
+# ── frontend: crawl SSRF guard ───────────────────────────────────
+def _fake_resolver(mapping):
+    return lambda host: mapping.get(host, [])
+
+
+def test_assert_public_url_blocks_private_and_loopback():
+    r = _fake_resolver({"internal.example": ["10.0.0.5"], "ok.example": ["93.184.216.34"]})
+    for bad in ("http://localhost/x", "https://127.0.0.1/x", "http://169.254.169.254/latest",
+                "https://internal.example/data"):
+        with pytest.raises(UnsafeUrlError):
+            assert_public_url(bad, resolver=r)
+    for bad_scheme in ("ftp://example.com", "file:///etc/passwd"):
+        with pytest.raises(UnsafeUrlError):
+            assert_public_url(bad_scheme, resolver=r)
+    # a public address passes
+    assert_public_url("https://ok.example/reports", resolver=r)
+
+
+def test_assert_public_url_respects_allow_private(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "crawler_allow_private", True)
+    assert_public_url("http://localhost:8000/x")  # no raise when explicitly allowed
