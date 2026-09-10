@@ -6,13 +6,17 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as qm
-
 from app.core.config import settings
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
+
+try:  # keep this module importable without the optional dep installed
+    from qdrant_client import QdrantClient
+    from qdrant_client.http import models as qm
+except ModuleNotFoundError:  # pragma: no cover
+    QdrantClient = None  # type: ignore[assignment,misc]
+    qm = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -31,6 +35,8 @@ class QdrantStore:
         collection: str | None = None,
         dim: int = 384,
     ) -> None:
+        if QdrantClient is None:  # pragma: no cover
+            raise RuntimeError("qdrant-client is not installed; `pip install -e .`")
         self.collection = collection or settings.qdrant_collection
         self.dim = dim
         self.client = QdrantClient(

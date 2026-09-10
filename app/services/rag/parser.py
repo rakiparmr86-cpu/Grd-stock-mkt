@@ -10,8 +10,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pypdf import PdfReader
-
 _TICKER_RE = re.compile(r"\b[A-Z][A-Z0-9&\-]{1,14}\b")
 _DOCTYPE_HINTS = {
     "annual report": "annual_report",
@@ -66,6 +64,8 @@ def parse_document(
     suffix = p.suffix.lower()
 
     if suffix == ".pdf":
+        from pypdf import PdfReader  # lazy — only PDFs need it
+
         reader = PdfReader(str(p))
         pages = [page.extract_text() or "" for page in reader.pages]
         text = "\n".join(pages)

@@ -8,9 +8,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.market import IndicatorPoint, OHLCV
+from app.models.market import Fundamental, IndicatorPoint, OHLCV
 
 log = get_logger(__name__)
+
+_FUNDAMENTAL_COLS = {"revenue", "net_income", "eps", "pe", "debt_to_equity"}
 
 
 def upsert_ohlcv(df: pd.DataFrame, *, interval: str = "1d") -> int:
@@ -37,6 +39,37 @@ def upsert_ohlcv(df: pd.DataFrame, *, interval: str = "1d") -> int:
         )
         db.execute(stmt)
     log.info("upserted %d OHLCV rows (%s)", len(rows), rows[0]["ticker"])
+    return len(rows)
+
+
+def upsert_fundamentals(records: list[dict]) -> int:
+    """``records``: dicts with at least ``ticker`` and ``period``. Recognised
+    numeric keys go to columns; everything else is folded into ``metrics``."""
+    rows = []
+    for rec in records:
+        rec = {k.strip().lower(): v for k, v in rec.items()}
+        ticker, period = rec.get("ticker"), rec.get("period")
+        if not ticker or not period:
+            continue
+        known = {c: rec.get(c) for c in _FUNDAMENTAL_COLS if rec.get(c) is not None}
+        extra = {k: v for k, v in rec.items()
+                 if k not in _FUNDAMENTAL_COLS | {"ticker", "period", "reported_at"}}
+        rows.append({
+            "ticker": str(ticker).upper(), "period": str(period),
+            "reported_at": rec.get("reported_at"),
+            **known, "metrics": extra,
+        })
+    if not rows:
+        return 0
+    with session_scope() as db:
+        stmt = pg_insert(Fundamental).values(rows)
+        update_cols = _FUNDAMENTAL_COLS | {"reported_at", "metrics"}
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ticker", "period"],
+            set_={c: stmt.excluded[c] for c in update_cols},
+        )
+        db.execute(stmt)
+    log.info("upserted %d fundamental rows", len(rows))
     return len(rows)
 
 

@@ -10,6 +10,7 @@ from app.models.config import (
     WatchlistItem,
 )
 from app.models.history import AgentDecision, Alert, AnalysisRun, Report, Signal
+from app.models.inputs import InputSource
 from app.models.market import Fundamental, IndicatorPoint, Instrument, OHLCV
 from app.models.user import User
 
@@ -22,6 +23,7 @@ __all__ = [
     "Rule",
     "Threshold",
     "Schedule",
+    "InputSource",
     "Instrument",
     "OHLCV",
     "Fundamental",

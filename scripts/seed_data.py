@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.core.database import session_scope
 from app.models.config import Rule, Strategy, Threshold, Watchlist, WatchlistItem
+from app.models.inputs import InputSource
 from app.models.market import Instrument
 
 TICKERS = ["RELIANCE", "TCS", "INFY"]
@@ -131,7 +132,30 @@ def main() -> None:
         strat.thresholds = [Threshold(key="min_conviction", value=0.2)]
         db.add(strat)
 
-    print("  seeded watchlist + strategy + rules")
+        # demo input sources (pluggable connectors)
+        db.add(InputSource(
+            name="Seed CSVs", connector="csv", kind="rows", is_active=True,
+            config={"dir": "./data/market", "glob": "*.csv", "row_kind": "ohlcv"},
+        ))
+        db.add(InputSource(
+            name="Local documents (PDF)", connector="pdf", kind="docs", is_active=True,
+            config={"dir": "./data/documents", "glob": "**/*.pdf"},
+        ))
+        db.add(InputSource(
+            name="GRD console (example, disabled)", connector="web_crawler",
+            kind="docs", is_active=False,
+            config={
+                "start_urls": ["https://console.grdworld.com/Schedular/Index"],
+                "max_depth": 1, "max_pages": 20, "respect_robots": True,
+                "include_patterns": ["/Schedular/"],
+                "auth": {"type": "form_login",
+                         "login_url": "https://console.grdworld.com/Account/Login",
+                         "user_field": "Email", "password_field": "Password",
+                         "user_env": "GRDWORLD_USER", "password_env": "GRDWORLD_PASS"},
+            },
+        ))
+
+    print("  seeded watchlist + strategy + rules + input sources")
     print("\nNext:")
     print("  uvicorn app.main:app --reload")
     print("  curl -X POST localhost:8000/api/v1/runs -H 'content-type: application/json' \\")

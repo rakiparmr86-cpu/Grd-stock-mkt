@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     market_data_api_key: str = ""
     market_data_dir: str = "./data/market"
 
+    # Input layer (pluggable connectors → market data / document library)
+    documents_dir: str = "./data/documents"
+    ocr_backend: Literal["stub", "tesseract", "api"] = "stub"
+    ocr_lang: str = "eng"
+    crawler_user_agent: str = "GrdStkMktCrawler/1.0"
+    crawler_default_delay_seconds: float = 1.0
+
     # Notifications
     smtp_host: str = "localhost"
     smtp_port: int = 1025

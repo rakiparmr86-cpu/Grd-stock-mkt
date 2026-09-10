@@ -7,6 +7,17 @@ engine → **LangGraph agent layer** → report renderer → notifications.
 A parallel RAG pipeline ingests documents (annual/quarterly reports, announcements,
 news, personal notes) into Qdrant and feeds the RAG Research agent.
 
+## Documentation
+
+All docs live in [`docs/`](docs/):
+
+- **[docs/OVERVIEW.md](docs/OVERVIEW.md)** — plain-language tour, no tech background needed. **Start here.**
+- **[docs/TECHNICAL.md](docs/TECHNICAL.md)** — what's built, how it fits together, the signal-rule grammar, known stubs.
+- **[docs/WORKFLOW.md](docs/WORKFLOW.md)** — setup, dev loop, feature recipes, the post-change update checklist, change log.
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** — every environment variable: default, effect, failure mode.
+- **[docs/RULES.md](docs/RULES.md)** — copy-paste signal-rule expressions.
+- **[docs/DATA_FORMATS.md](docs/DATA_FORMATS.md)** — file/column formats each input connector expects.
+
 ```
 React frontend (later)
         │  REST / WebSocket
@@ -90,6 +101,8 @@ app/
   api/v1/          FastAPI routers
   services/
     market_data/   provider ABC + NSE/Excel/CSV/API + normalization
+    inputs/        connector ABC + csv/excel/pdf/image_ocr/web_crawler/http_api
+                   + auth + registry + sink (rows→TimescaleDB, docs→Qdrant)
     calculations/  indicator library + calculation engine
     signals/       dynamic rule / signal engine
     rag/           parser, chunker, embeddings, Qdrant store, ingest
