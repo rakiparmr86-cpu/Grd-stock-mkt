@@ -31,4 +31,4 @@ data/documents/*
 *.sqlite3
 .DS_Store
 .idea/
-.vscode/
+

@@ -23,15 +23,17 @@ copy .env.example .env
 # 2. infra containers (Postgres+Timescale, Redis, Qdrant, MailHog)
 docker compose up -d postgres redis qdrant mailhog
 
-# 3. python deps into a venv
-python -m venv .venv
+# 3. python deps into a venv  (Python 3.11 — NOT 3.12+; some deps lag)
+py -3.11 -m venv .venv        # or: python -m venv .venv  if `python` is already 3.11
 .venv\Scripts\activate
 pip install -e ".[dev]"
+#    VS Code: Ctrl+Shift+P → "Python: Select Interpreter" → .venv
+#    then F5 uses .vscode/launch.json → "API: uvicorn (reload)"
 
 # 4. database schema
 alembic upgrade head
 
-# 5. demo data + a demo login (demo@grd-stk-mkt.local / demo12345)
+# 5. demo data + a demo login (demo@grd-stk-mkt.local / 1223456)
 python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
@@ -327,6 +329,8 @@ Run through this **every time** you finish a feature or fix:
 | frontend shows the sign-in screen and login fails | API not running / wrong `VITE_API_BASE`, or no user yet — `python scripts/seed_data.py` (demo login) or `scripts/create_user.py` |
 | `/inputs/*` returns 401 from curl | send `-H "Authorization: Bearer <token>"`; get the token from `POST /auth/login` (form fields `username`, `password`) |
 | `pip install` pulls `bcrypt` 5.x and hashing errors | fixed — `security.py` calls `bcrypt` directly (passlib was dropped); ensure `bcrypt>=4.0` is installed |
+| VS Code **F5 → traceback in `runpy` / `ModuleNotFoundError`** | you can't run a single module (`app/api/v1/*.py` use package imports and have no `__main__`), and the `py` launcher may default to a Python without the deps. Fix: `Python: Select Interpreter` → `.venv`, then F5 picks `.vscode/launch.json` → **"API: uvicorn (reload)"** which runs `app.main:app` from the project root. |
+| breakpoints in route handlers don't hit | use the **"API: uvicorn (no reload)"** launch config — the `--reload` child process isn't the one the debugger attached to. |
 
 ---
 
@@ -334,11 +338,17 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — dx: added `.vscode/{launch.json,settings.json,extensions.json}` —
+  F5 runs `uvicorn app.main:app` (reload / no-reload), plus Celery worker/beat,
+  seed, and pytest configs; interpreter pinned to `.venv`. `.gitignore` now
+  keeps those three `.vscode` files. Fixed a missing dep: `pydantic` →
+  `pydantic[email]` in `pyproject.toml` (`EmailStr` in `schemas/auth.py` needs
+  `email-validator`).
 - 2026-09-10 — auth: `/inputs/*` now requires a bearer token (router-level
   `Depends(get_current_user)`). Password hashing switched from passlib to
   `bcrypt` directly (`security.py`) — passlib 1.7.4 breaks on bcrypt ≥ 5;
   `pyproject` dep `passlib[bcrypt]` → `bcrypt>=4.0`. `scripts/create_user.py`
-  added; `seed_data.py` seeds `demo@grd-stk-mkt.local` / `demo12345`. Frontend:
+  added; `seed_data.py` seeds `demo@grd-stk-mkt.local` / `1223456`. Frontend:
   `src/api.js` (token + `api()` wrapper) + `src/AuthForm.jsx` (login / register)
   + `App.jsx` auth gate. Tests: +8 (`test_security.py`, `test_auth_api.py`);
   `pytest -q` → 48 pass, 1 skip. Docs: TECHNICAL §2/§8/§14/§16/§17, WORKFLOW,

@@ -77,7 +77,7 @@ cp .env.example .env                # then edit secrets (SECRET_KEY!)
 docker compose up -d postgres redis qdrant
 pip install -e ".[dev]"
 alembic upgrade head
-python scripts/seed_data.py          # demo data + login: demo@grd-stk-mkt.local / demo12345
+python scripts/seed_data.py          # demo data + login: demo@grd-stk-mkt.local / 1223456
 uvicorn app.main:app --reload        # http://localhost:8000/docs
 
 # workers (separate shells)
