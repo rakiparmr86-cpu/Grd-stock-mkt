@@ -210,15 +210,17 @@ Each recipe lists the files to touch **in order**, then the "done when" checks.
 6. Update `TECHNICAL.md` §8 table.
 
 ### Add / change a DB model
-1. Edit the model under `app/models/`; if it's a new module, import it in
+Full detail + conventions: **[DATABASE.md](DATABASE.md)**.
+1. Edit the model under `app/models/`; new module → import it in
    `app/models/__init__.py` so Alembic sees it.
-2. `alembic revision --autogenerate -m "what changed"` → review the file in
-   `migrations/versions/` (autogen misses enum/type/index renames — fix by hand).
-3. `alembic upgrade head`; test `alembic downgrade -1` then `upgrade head` again.
+2. `make db-new m="what changed"` → **review** `migrations/versions/<new>.py`
+   (autogen misses renames, some server defaults, CHECK/enum changes — fix by
+   hand; write a real `downgrade()`).
+3. `make db-up` then `make db-redo` (downgrade -1 + upgrade — proves the rollback).
 4. Update `scripts/seed_data.py` if the demo data needs the new field.
 5. Update `TECHNICAL.md` §6 table.
-6. **Done when:** fresh DB via `alembic upgrade head` matches a DB built from
-   models; `pytest -q` green.
+6. **Done when:** `make db-check` is clean (models == migrations), `make db-redo`
+   works, `pytest -q` green. CI re-runs all of this on a throwaway Postgres.
 
 ### Add a notification channel (WhatsApp / Telegram)
 1. `app/services/notifications/<channel>.py` — subclass `NotificationChannel`;
@@ -338,6 +340,14 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — db: documented + tightened migration management. New
+  `docs/DATABASE.md` (workflow, conventions, expand/migrate/contract, raw-SQL
+  option). `Makefile` `db-new/db-up/db-down/db-redo/db-current/db-history/
+  db-heads/db-check/db-dump`. `docker-compose.yml` gains a one-shot `migrate`
+  service; `api`/`worker`/`beat` wait on `service_completed_successfully`.
+  `.github/workflows/ci.yml` — ruff + pytest + migrations apply + full
+  downgrade/upgrade + `alembic check`. `kubernetes/` — `migrate-job.yaml` +
+  README (Job-gated rollout). `env.py` gains `compare_server_default`.
 - 2026-09-10 — dx: added `.vscode/{launch.json,settings.json,extensions.json}` —
   F5 runs `uvicorn app.main:app` (reload / no-reload), plus Celery worker/beat,
   seed, and pytest configs; interpreter pinned to `.venv`. `.gitignore` now

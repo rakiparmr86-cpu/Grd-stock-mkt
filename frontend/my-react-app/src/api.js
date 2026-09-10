@@ -65,11 +65,18 @@ export async function api(path, opts = {}) {
 // ── auth calls ────────────────────────────────────────────────────
 export async function login(email, password) {
   // OAuth2 password flow → form-encoded, field name is "username"
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ username: email, password }),
-  })
+  let res
+  try {
+    res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: email, password }),
+    })
+  } catch {
+    throw new Error(
+      `can't reach the API at ${API_BASE} — is it running? (uvicorn app.main:app)`,
+    )
+  }
   const body = await parse(res)
   if (!res.ok) {
     throw new Error(body?.detail || `login failed (HTTP ${res.status})`)

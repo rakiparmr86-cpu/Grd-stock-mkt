@@ -76,7 +76,7 @@ export default function AuthForm({ onAuthed }) {
           <input
             type="password"
             required
-            minLength={8}
+            minLength={tab === 'register' ? 8 : undefined}
             autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}

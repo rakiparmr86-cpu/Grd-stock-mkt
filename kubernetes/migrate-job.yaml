@@ -1,0 +1,36 @@
+# Runs the DB schema to head, once, before the app rolls out.
+#
+#   kubectl apply -f kubernetes/migrate-job.yaml
+#   kubectl wait --for=condition=complete --timeout=300s job/grd-stk-mkt-migrate
+#   # then: kubectl rollout restart deployment/grd-stk-mkt-api ...
+#
+# Rename (or use generateName) per release so a new image gets a fresh Job.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grd-stk-mkt-migrate
+  labels:
+    app: grd-stk-mkt
+    component: migrate
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: grd-stk-mkt
+        component: migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: REGISTRY/grd-stk-mkt:latest   # <-- your image (repo Dockerfile)
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: grd-stk-mkt-config      # POSTGRES_HOST, POSTGRES_DB, ...
+            - secretRef:
+                name: grd-stk-mkt-secrets     # SECRET_KEY, POSTGRES_PASSWORD, ...
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }

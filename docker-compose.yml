@@ -42,6 +42,17 @@ services:
       - "1025:1025"   # SMTP
       - "8025:8025"   # web UI
 
+  # one-shot: bring the schema to head, then exit. api/worker/beat wait for it.
+  migrate:
+    build: .
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+
   api:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -60,6 +71,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       qdrant: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
 
   worker:
     build: .
@@ -73,9 +85,9 @@ services:
       SMTP_HOST: mailhog
       SMTP_PORT: "1025"
     depends_on:
-      - api
-      - redis
-      - postgres
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   beat:
     build: .
@@ -86,8 +98,9 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
-      - redis
-      - postgres
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
 volumes:
   pgdata:

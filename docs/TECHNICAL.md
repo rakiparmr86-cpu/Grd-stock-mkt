@@ -89,12 +89,15 @@ Grd-stock-mkt/
 │       ├── celery_app.py        Celery instance + config
 │       ├── beat_schedule.py     static + `schedules` table + `input_sources` cron
 │       └── tasks/               market_data · analysis · rag · inputs · notifications
-├── migrations/                  Alembic (0001_initial creates all tables + hypertables)
+├── migrations/                  Alembic — versions/, env.py  (see DATABASE.md)
 ├── scripts/                     seed_data.py (demo data + demo login) · create_user.py
-├── tests/                       conftest fixture + test_indicators + test_signal_engine
-│                                + test_agents_graph (offline)
-├── frontend/my-react-app/       Vite React 19 skeleton  🟡
-├── docker-compose.yml           timescaledb, redis, qdrant, mailhog, api, worker, beat
+├── tests/                       conftest + indicators / signal_engine / inputs /
+│                                security / auth_api / agents_graph
+├── frontend/my-react-app/       Vite + React 19 — sign-in + Inputs console
+├── .github/workflows/ci.yml     ruff · pytest · migrations apply/rollback · alembic check
+├── kubernetes/                  migrate-job.yaml + notes (Job-gated rollout)
+├── .vscode/                     launch.json (F5 → uvicorn) · settings.json
+├── docker-compose.yml           pg(+timescale) · redis · qdrant · mailhog · migrate · api · worker · beat
 ├── Dockerfile                   python:3.11-slim, installs the package
 ├── alembic.ini · pyproject.toml · Makefile
 ```
@@ -181,7 +184,9 @@ optionally, the full `frame` (needed for cross / offset).
 Migration `0001_initial.py` creates everything from `Base.metadata`, enables
 `timescaledb` if the role allows it, and promotes `ohlcv` + `indicator_points`
 to hypertables. `0002_input_sources.py` adds `input_sources`. Later changes use
-`alembic revision --autogenerate`.
+`make db-new m="…"` (autogenerate) — **workflow, conventions, CI and prod
+rollout: [DATABASE.md](DATABASE.md)**. `docker compose up` runs a one-shot
+`migrate` service before `api`/`worker`/`beat`.
 
 | Table | Key columns | Notes |
 | --- | --- | --- |

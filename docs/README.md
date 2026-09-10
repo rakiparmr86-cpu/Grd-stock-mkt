@@ -6,6 +6,7 @@
 | **[TECHNICAL.md](TECHNICAL.md)** | Developers | What's already built: stack, repo layout, every subsystem with key files and contracts, data model, API list, the signal-rule grammar, known stubs. |
 | **[WORKFLOW.md](WORKFLOW.md)** | Developers (living doc) | How to set up and run it, the daily dev loop, step-by-step recipes for adding features, the "after new development" update checklist, and a change log. |
 | **[CONFIGURATION.md](CONFIGURATION.md)** | Operators / developers | Every environment variable: default, effect, failure mode. Plus a minimal offline `.env`. |
+| **[DATABASE.md](DATABASE.md)** | Developers / operators | How the schema is managed (Alembic migrations), the change workflow, `make db-*` commands, CI checks, prod / K8s rollout. |
 | **[RULES.md](RULES.md)** | Anyone writing strategies | Copy-paste signal-rule expressions (RSI, crossovers, breakouts, combined) + gotchas. |
 | **[DATA_FORMATS.md](DATA_FORMATS.md)** | Anyone feeding data in | Exact file/column/date formats each input connector expects; auth config for crawler & API. |
 
@@ -18,6 +19,7 @@ Project one-screen summary: [../README.md](../README.md)
 - **New to the project?** OVERVIEW → then TECHNICAL if you'll be coding.
 - **Setting it up?** WORKFLOW §1, then CONFIGURATION for the `.env`.
 - **Adding a feature?** WORKFLOW §4 (recipes) and §7 (what to update after).
+- **Changing the schema?** DATABASE — never edit a table by hand.
 - **Feeding in data / writing rules?** DATA_FORMATS and RULES.
 - **Need to know if something exists?** TECHNICAL (status legend: ✅ / 🟡 / ⬜).
 

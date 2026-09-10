@@ -15,6 +15,7 @@ All docs live in [`docs/`](docs/):
 - **[docs/TECHNICAL.md](docs/TECHNICAL.md)** — what's built, how it fits together, the signal-rule grammar, known stubs.
 - **[docs/WORKFLOW.md](docs/WORKFLOW.md)** — setup, dev loop, feature recipes, the post-change update checklist, change log.
 - **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** — every environment variable: default, effect, failure mode.
+- **[docs/DATABASE.md](docs/DATABASE.md)** — schema management (Alembic migrations), change workflow, `make db-*`, CI, K8s rollout.
 - **[docs/RULES.md](docs/RULES.md)** — copy-paste signal-rule expressions.
 - **[docs/DATA_FORMATS.md](docs/DATA_FORMATS.md)** — file/column formats each input connector expects.
 
@@ -92,11 +93,15 @@ cd frontend/my-react-app && npm install && npm run dev   # http://localhost:5173
 curl, `POST /auth/login` (`username`=email) then send `Authorization: Bearer …`.
 Bootstrap a user without the API: `python scripts/create_user.py EMAIL PASSWORD`.
 
-Or run everything in containers:
+Or run everything in containers (a one-shot `migrate` service brings the schema
+to head before `api`/`worker`/`beat` start):
 
 ```bash
 docker compose up --build
 ```
+
+Schema changes go through Alembic migrations — see [docs/DATABASE.md](docs/DATABASE.md)
+(`make db-new`, `db-up`, `db-redo`, `db-check`).
 
 ## Layout
 
