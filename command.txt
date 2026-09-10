@@ -1,0 +1,7 @@
+cd D:\newdata\Grd-stk-mkt
+copy .env.example .env
+docker compose up -d postgres redis qdrant mailhog
+pip install -e ".[dev]"
+alembic upgrade head
+python scripts/seed_data.py
+uvicorn app.main:app --reload
