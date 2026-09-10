@@ -331,6 +331,7 @@ Run through this **every time** you finish a feature or fix:
 | frontend shows the sign-in screen and login fails | API not running / wrong `VITE_API_BASE`, or no user yet — `python scripts/seed_data.py` (demo login) or `scripts/create_user.py` |
 | `/inputs/*` returns 401 from curl | send `-H "Authorization: Bearer <token>"`; get the token from `POST /auth/login` (form fields `username`, `password`) |
 | `pip install` pulls `bcrypt` 5.x and hashing errors | fixed — `security.py` calls `bcrypt` directly (passlib was dropped); ensure `bcrypt>=4.0` is installed |
+| a 500 / a task failed and you want the traceback | `tail -f logs/errors.log` — the API and every Celery worker write unhandled exceptions there (full traceback). `logs/app.log` has the INFO stream too. |
 | VS Code **F5 → traceback in `runpy` / `ModuleNotFoundError`** | you can't run a single module (`app/api/v1/*.py` use package imports and have no `__main__`), and the `py` launcher may default to a Python without the deps. Fix: `Python: Select Interpreter` → `.venv`, then F5 picks `.vscode/launch.json` → **"API: uvicorn (reload)"** which runs `app.main:app` from the project root. |
 | breakpoints in route handlers don't hit | use the **"API: uvicorn (no reload)"** launch config — the `--reload` child process isn't the one the debugger attached to. |
 
@@ -340,6 +341,14 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — logging: added rotating file logs. `app/core/logging.py` now
+  writes `logs/app.log` (LOG_LEVEL+) and `logs/errors.log` (WARNING+ with
+  tracebacks) alongside the console; settings `LOG_LEVEL/LOG_DIR/LOG_FILE/
+  ERROR_LOG_FILE/LOG_FILE_MAX_BYTES/LOG_FILE_BACKUPS` (`LOG_DIR=` disables files).
+  `app/main.py` gains an unhandled-exception middleware (log traceback → reraise);
+  `celery_app.py` gains `setup_logging` (keep our handlers) + `task_failure`
+  (every failed task → `errors.log`). `logs/` git-ignored. Tests +3
+  (`test_logging.py`), 52 pass.
 - 2026-09-10 — db: documented + tightened migration management. New
   `docs/DATABASE.md` (workflow, conventions, expand/migrate/contract, raw-SQL
   option). `Makefile` `db-new/db-up/db-down/db-redo/db-current/db-history/

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
@@ -42,6 +42,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def log_unhandled_exceptions(request: Request, call_next):
+    """Write any unhandled error (with traceback) to the exception log, then
+    let Starlette produce its normal 500 / debug response."""
+    try:
+        return await call_next(request)
+    except Exception:
+        log.exception(
+            "unhandled exception: %s %s", request.method, request.url.path
+        )
+        raise
+
+
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
@@ -69,3 +82,5 @@ async def ws_signals(ws: WebSocket) -> None:
             await ws.send_json({"type": "ack", "echo": msg})
     except WebSocketDisconnect:
         log.info("ws client disconnected")
+    except Exception:
+        log.exception("ws/signals handler error")

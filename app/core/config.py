@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     algorithm: str = "HS256"
 
+    # Logging
+    log_level: str = "INFO"              # console + app.log threshold
+    log_dir: str = "./logs"             # "" disables file logging
+    log_file: str = "app.log"           # everything at log_level and above
+    error_log_file: str = "errors.log"  # the common exception log — WARNING+ (incl. tracebacks)
+    log_file_max_bytes: int = 5_000_000
+    log_file_backups: int = 5
+
     # Postgres / Timescale
     postgres_host: str = "localhost"
     postgres_port: int = 5432

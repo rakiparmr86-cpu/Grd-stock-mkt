@@ -28,6 +28,8 @@ data/documents/*
 !data/market/.gitkeep
 
 *.log
+logs/
+schema.sql
 *.sqlite3
 .DS_Store
 .idea/

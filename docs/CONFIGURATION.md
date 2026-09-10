@@ -26,6 +26,25 @@ Every setting, its default, what it does, and what breaks if it's wrong.
 | `ALGORITHM` | `HS256` | JWT signing algo. Leave unless you know why. |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Browser origins allowed to call the API. Add the Vite dev origin (`http://localhost:5173`) when wiring the frontend. JSON list. |
 
+## Logging
+
+Console always on. Two rotating files under `LOG_DIR` (API **and** Celery
+workers write to both):
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Threshold for the console and `app.log`. |
+| `LOG_DIR` | `./logs` | Directory for the log files. **Set empty (`LOG_DIR=`) to disable file logging** (console only) — useful for read-only containers / stdout-only setups. |
+| `LOG_FILE` | `app.log` | Everything at `LOG_LEVEL` and above. |
+| `ERROR_LOG_FILE` | `errors.log` | **The common exception log** — `WARNING` and above from anywhere in the backend, with full tracebacks (`logger.exception` / unhandled request errors / Celery `task_failure`). This is the file to tail when something breaks. |
+| `LOG_FILE_MAX_BYTES` | `5000000` | Rotate each file at this size… |
+| `LOG_FILE_BACKUPS` | `5` | …keeping this many rotations (`errors.log.1` … `errors.log.5`). |
+
+`logs/` is git-ignored. Unhandled API exceptions are caught by a middleware in
+`app/main.py` (logged with traceback, then Starlette's normal 500 response);
+Celery failures are caught by a `task_failure` handler in
+`app/workers/celery_app.py`.
+
 ## PostgreSQL / TimescaleDB
 
 | Var | Default | Purpose / effect if wrong |
