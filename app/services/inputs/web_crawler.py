@@ -15,6 +15,8 @@ Config
       "exclude_patterns": ["\\.pdf$", "/logout"],
       "user_agent": "GrdStkMktCrawler/1.0",
       "doc_type": "web",
+      "ticker": "HDFCBANK",   # optional — tags every page for the RAG agent's
+                              # ticker-scoped search (see app.services.rag.rag_research)
       "auth": { ...see app.services.inputs.auth... }
     }
 
@@ -104,6 +106,7 @@ class WebCrawlerConnector(InputConnector):
         delay = float(self._cfg("delay_seconds", 1.0))
         ua = self._cfg("user_agent", "GrdStkMktCrawler/1.0")
         doc_type = self._cfg("doc_type", "web")
+        ticker = self._cfg("ticker")
         inc = [re.compile(p) for p in self._cfg("include_patterns", []) or []]
         exc = [re.compile(p) for p in self._cfg("exclude_patterns", []) or []]
 
@@ -141,13 +144,12 @@ class WebCrawlerConnector(InputConnector):
 
                 title, text, hrefs = _strip_html(resp.text)
                 served += 1
+                meta = {"url": url, "title": title or url, "doc_type": doc_type,
+                       "depth": depth, "http_status": resp.status_code}
+                if ticker:
+                    meta["tickers"] = [ticker.upper()]
                 yield ConnectorResult.of_docs(
-                    [DocItem(
-                        text=text,
-                        source_key=url,
-                        metadata={"url": url, "title": title or url, "doc_type": doc_type,
-                                  "depth": depth, "http_status": resp.status_code},
-                    )],
+                    [DocItem(text=text, source_key=url, metadata=meta)],
                     url=url, depth=depth,
                 )
 

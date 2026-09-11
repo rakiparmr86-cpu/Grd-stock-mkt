@@ -87,10 +87,13 @@ class QdrantStore:
         if doc_type:
             must.append(qm.FieldCondition(key="doc_type", match=qm.MatchValue(value=doc_type)))
         flt = qm.Filter(must=must) if must else None
-        res = self.client.search(
-            collection_name=self.collection, query_vector=vector,
+        # QdrantClient.search() was removed in newer qdrant-client releases in
+        # favor of query_points() (same filter/limit semantics, wraps hits in
+        # a QueryResponse with a `.points` list).
+        res = self.client.query_points(
+            collection_name=self.collection, query=vector,
             limit=limit, query_filter=flt,
-        )
+        ).points
         return [
             SearchHit(
                 id=str(p.id),

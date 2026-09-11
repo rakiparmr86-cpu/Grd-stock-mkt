@@ -115,6 +115,27 @@ def test_crawler_respects_max_pages(monkeypatch):
     assert len(list(conn.fetch())) == 3
 
 
+def test_crawler_tags_ticker_when_configured(monkeypatch):
+    pages = {"https://screener.test/company/HDFCBANK/": "<title>HDFC Bank</title><p>ROCE 18%</p>"}
+    conn = WebCrawlerConnector({
+        "start_urls": ["https://screener.test/company/HDFCBANK/"],
+        "ticker": "hdfcbank", "respect_robots": False, "delay_seconds": 0,
+    })
+    monkeypatch.setattr(conn, "_client", lambda: _FakeClient(pages))
+    doc = next(iter(conn.fetch())).docs[0]
+    assert doc.metadata["tickers"] == ["HDFCBANK"]
+
+
+def test_crawler_no_ticker_key_when_not_configured(monkeypatch):
+    pages = {"https://x.test/p": "<title>t</title>"}
+    conn = WebCrawlerConnector({
+        "start_urls": ["https://x.test/p"], "respect_robots": False, "delay_seconds": 0,
+    })
+    monkeypatch.setattr(conn, "_client", lambda: _FakeClient(pages))
+    doc = next(iter(conn.fetch())).docs[0]
+    assert "tickers" not in doc.metadata
+
+
 # ── csv connector → rows ───────────────────────────────────────────
 def test_csv_connector_emits_normalized_ohlcv(tmp_path):
     p = tmp_path / "RELIANCE.csv"

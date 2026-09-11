@@ -8,7 +8,7 @@ Config
     {"path": "fundamentals.xlsx", "mode": "rows", "row_kind": "fundamental"}
 
     # docs → Qdrant (each sheet becomes a text table)
-    {"path": "notes.xlsx", "mode": "docs", "doc_type": "research_note"}
+    {"path": "notes.xlsx", "mode": "docs", "doc_type": "research_note", "ticker": "RELIANCE"}
 """
 
 from __future__ import annotations
@@ -62,13 +62,16 @@ class ExcelConnector(InputConnector):
 
         if mode == "docs":
             doc_type = self._cfg("doc_type", "spreadsheet")
+            doc_ticker = self._cfg("ticker")
             for sheet in self._sheets(xls):
                 df = xls.parse(sheet)
                 text = f"# {path.stem} — {sheet}\n\n{df.to_markdown(index=False)}"
+                meta = {"filename": path.name, "sheet": sheet,
+                       "title": f"{path.stem} / {sheet}", "doc_type": doc_type}
+                if doc_ticker:
+                    meta["tickers"] = [doc_ticker.upper()]
                 yield ConnectorResult.of_docs([DocItem(
-                    text=text, source_key=f"{path.resolve()}::{sheet}",
-                    metadata={"filename": path.name, "sheet": sheet,
-                              "title": f"{path.stem} / {sheet}", "doc_type": doc_type},
+                    text=text, source_key=f"{path.resolve()}::{sheet}", metadata=meta,
                 )])
             return
 

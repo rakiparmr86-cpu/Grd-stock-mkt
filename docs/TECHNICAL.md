@@ -38,7 +38,7 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | API | FastAPI + Uvicorn, `/api/v1` prefix, WebSocket at `/ws/signals` | ✅ |
 | ORM / migrations | SQLAlchemy 2.0 (typed `Mapped[...]`), Alembic | ✅ |
 | Relational + time series | PostgreSQL 16 + TimescaleDB extension (hypertables on `ohlcv`, `indicator_points`) | ✅ |
-| Vector store | Qdrant | ✅ wrapper, 🟡 needs `qdrant-client` installed |
+| Vector store | Qdrant | ✅ wrapper (`qdrant-client>=1.10`, for `query_points()`) |
 | Cache / broker / locks | Redis | ✅ |
 | Tasks / schedule | Celery 5 + Celery Beat (static + DB-driven schedule) | ✅ |
 | Input connectors | csv/excel/pdf/http_api ✅ · web_crawler (bs4, auth hook) ✅ · image_ocr 🟡 (stub; tesseract/api opt-in) | ✅ |
@@ -48,7 +48,7 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | Notifications | SMTP email (MailHog in dev) | ✅ email · ⬜ WhatsApp/Telegram |
 | Frontend | Vite + React 19 (`frontend/my-react-app`) | 🟡 skeleton only |
 | Auth | JWT (PyJWT) + bcrypt (direct), OAuth2 password flow; enforced on `/inputs/*` | ✅ |
-| Tests | pytest — indicators, signal engine, inputs, security, API auth gate, repositories; agent graph skips without langgraph | ✅ 68 pass, 1 skip (69 with langgraph) |
+| Tests | pytest — indicators, signal engine, inputs, security, API auth gate, repositories; agent graph skips without langgraph | ✅ 73 pass, 1 skip (74 with langgraph) |
 
 ---
 
@@ -407,7 +407,14 @@ Every node appends an `agent_decisions`-shaped dict to `state["decisions"]`
   (deterministic, offline, dim 384). **Dim must match the Qdrant collection.**
 - `vectorstore.py` — `QdrantStore`: `ensure_collection` (cosine + keyword
   payload indexes on ticker/doc_type/source_id), `upsert`, `search(vector,
-  ticker=, doc_type=)`, `delete_by_source`.
+  ticker=, doc_type=)`, `delete_by_source`. `search()` calls `query_points()`
+  — **not** `QdrantClient.search()`, removed in qdrant-client releases newer
+  than the old `>=1.9` floor (bumped to `>=1.10`). That's a real bug this
+  project shipped with for a while: `rag_research_node` swallows any
+  retrieval exception as "no documents" (by design, for offline degradation),
+  so the old call failed **silently** — every RAG query quietly returned zero
+  hits on a modern qdrant-client, never an error. `test_vectorstore.py` pins
+  the correct call so it can't regress unnoticed again.
 - `ingest.py` —
   `ingest_document(path, replace=True)` = parse → chunk → embed → upsert
   (`source_id` = sha1(path + mtime)); **`ingest_text(text, source_key=, metadata=)`**
@@ -441,10 +448,18 @@ connector.fetch() ─► ConnectorResult(kind="rows", rows=<df>, row_kind="ohlcv
 | --- | --- | --- |
 | `csv` | rows | `path`\|`dir`, `glob`, `row_kind`, `ticker`, `sep` |
 | `excel` | rows **or** docs | `path`, `mode`, `row_kind`, `sheet`, `ticker`, `doc_type` |
-| `pdf` | docs | `paths`\|`dir`, `glob`, `doc_type` |
-| `image_ocr` | docs | `paths`\|`dir`, `backend` (`stub`\|`tesseract`\|`api`), `lang`, `url`, `api_key_env` |
-| `web_crawler` | docs | `start_urls`, `allowed_domains`, `max_depth`, `max_pages`, `same_domain_only`, `respect_robots`, `delay_seconds`, `include_patterns`, `exclude_patterns`, `auth` |
-| `http_api` | rows **or** docs | `url`, `method`, `mode`, `json_path`, `next_path`, `max_pages`, `text_fields`, `id_field`, `meta_fields`, `ticker`, `auth` |
+| `pdf` | docs | `paths`\|`dir`, `glob`, `doc_type` (ticker auto-detected by `parse_document`) |
+| `image_ocr` | docs | `paths`\|`dir`, `backend` (`stub`\|`tesseract`\|`api`), `lang`, `url`, `api_key_env`, `ticker`, `doc_type` |
+| `web_crawler` | docs | `start_urls`, `allowed_domains`, `max_depth`, `max_pages`, `same_domain_only`, `respect_robots`, `delay_seconds`, `include_patterns`, `exclude_patterns`, `ticker`, `doc_type`, `auth` |
+| `http_api` | rows **or** docs | `url`, `method`, `mode`, `json_path`, `next_path`, `max_pages`, `text_fields`, `id_field`, `meta_fields`, `ticker`, `doc_type`, `auth` |
+
+**`ticker`** (optional, on every docs-emitting connector except `pdf`, which
+auto-detects it) tags each document with `metadata["tickers"] = [TICKER]` so
+`rag_research_node`'s ticker-scoped Qdrant search actually finds it. Before
+this existed, `excel` (docs mode), `image_ocr`, `web_crawler`, and `http_api`
+(docs mode) ingested content with **no ticker tag at all** — retrievable only
+by the RAG agent's untagged fallback search across every document in the
+collection, not the ticker-filtered one it tries first.
 
 - `base.py` — `InputConnector` ABC (`validate()` hook, `fetch() -> Iterator`),
   `ConnectorResult`, `DocItem`, `ConnectorKind`.
@@ -586,7 +601,7 @@ token refresh (token just expires → re-login). See WORKFLOW §Frontend.
 
 ## 16. Tests
 
-`pytest -q` → **68 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **73 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.

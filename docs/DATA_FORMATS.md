@@ -82,9 +82,11 @@ File = the OHLCV or fundamental shape above.
 {"path": "fundamentals.xlsx", "mode": "rows", "row_kind": "fundamental"}
 
 // docs: each sheet becomes a Markdown table in the library
-{"path": "notes.xlsx", "mode": "docs", "doc_type": "research_note"}
+{"path": "notes.xlsx", "mode": "docs", "doc_type": "research_note", "ticker": "RELIANCE"}
 ```
 Needs `openpyxl` (installed with the package). Same column rules as CSV.
+`ticker` in docs mode tags the sheet for the RAG agent's ticker-scoped search
+(without it, only its untagged fallback search can find the document).
 
 ### `pdf`  → docs
 ```jsonc
@@ -99,13 +101,13 @@ research_note / other) unless you override it.
 ### `image_ocr`  → docs
 ```jsonc
 {"paths": ["data/documents/scan1.png"], "backend": "stub"}         // default: no text
-{"dir": "data/documents/images", "backend": "tesseract", "lang": "eng"}
+{"dir": "data/documents/images", "backend": "tesseract", "lang": "eng", "ticker": "RELIANCE"}
 {"paths": ["chart.png"], "backend": "api", "url": "https://ocr.example/v1", "api_key_env": "OCR_KEY"}
 ```
 Accepts `.png .jpg .jpeg .tif .tiff .bmp .webp`. `stub` (default) emits **empty
 text** + a warning so the pipeline still runs; `tesseract` needs
 `pip install ".[ocr]"` and the Tesseract binary on `PATH`; `api` POSTs the image
-file to `<url>/ocr`.
+file to `<url>/ocr`. `ticker` tags every image processed by this source.
 
 ### `web_crawler`  → docs
 ```jsonc
@@ -119,11 +121,16 @@ file to `<url>/ocr`.
   "delay_seconds": 1.0,
   "include_patterns": ["/Schedular/"],   // regex; a link must match ONE to be queued
   "exclude_patterns": ["\\.pdf$", "/logout"],
+  "ticker": "HDFCBANK",      // optional — tags every page crawled by this source
   "auth": { ... see below ... }
 }
 ```
 Static HTML only (no JavaScript rendering). Extracts visible text + `<title>` +
-links (BeautifulSoup, regex fallback). One document per page, `doc_type` `web`.
+links (BeautifulSoup, regex fallback). One document per page, `doc_type` `web`
+by default. Tested live against a real, JS-light public site
+(`screener.in/company/<TICKER>/consolidated/`) — server-rendered financial
+data pages work fine; a React/Vue SPA that renders its content client-side
+would not (the crawler never executes JavaScript).
 
 ### `http_api`  → rows or docs
 ```jsonc
@@ -135,7 +142,7 @@ links (BeautifulSoup, regex fallback). One document per page, `doc_type` `web`.
 // docs, with pagination
 {"url": "https://news/api/latest", "mode": "docs", "json_path": "articles",
  "text_fields": ["title", "body"], "id_field": "id",
- "meta_fields": ["url", "published_at"], "doc_type": "news",
+ "meta_fields": ["url", "published_at"], "doc_type": "news", "ticker": "RELIANCE",
  "next_path": "paging.next", "max_pages": 10}
 ```
 `json_path` is a dotted path to the list in the response. For `rows`, list items

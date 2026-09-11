@@ -38,7 +38,7 @@ python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 68 passed, 1 skipped (69 with langgraph installed)
+pytest -q            # expect: 73 passed, 1 skipped (74 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -360,6 +360,24 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-11 — rag: fixed a **silent** bug — `QdrantStore.search()` called
+  `QdrantClient.search()`, removed in qdrant-client releases newer than the
+  `>=1.9` floor; since `rag_research_node` treats any retrieval exception as
+  "no documents" (deliberate offline degradation), this failed **without ever
+  raising** — every RAG query on a modern qdrant-client quietly returned zero
+  hits. Fixed to use `query_points()`; bumped the floor to `>=1.10`. New
+  `tests/test_vectorstore.py` (3 tests, fake client) pins the call so it can't
+  regress unnoticed again. Found and verified live while checking whether the
+  system could crawl+analyze https://www.screener.in/company/HDFCBANK/ — real
+  end-to-end proof: crawled the page (robots-allowed, 200 OK, 59.5K chars),
+  ingested 9 chunks into Qdrant, retrieved them back by ticker-scoped search
+  with real HDFC Bank figures in the hits (Market Cap, P/E, ROCE, …).
+  Also added **`ticker` config** to `web_crawler`, `excel` (docs mode),
+  `image_ocr`, and `http_api` (docs mode) — before this, none of them tagged
+  ingested documents with a ticker at all, so the RAG agent's ticker-filtered
+  search could never find them (only its untagged fallback could, mixed in
+  with every other document). `pdf` still auto-detects via `parse_document`.
+  Tests +2 (`test_inputs.py`). `pytest -q` → 73 passed, 1 skipped.
 - 2026-09-11 — logging: `app.log` and `errors.log` now stamp a day-separator
   banner (`--------------------------=11-Sep-25----...`, 91 chars) before each
   calendar day's first line — `DatedRotatingFileHandler` in

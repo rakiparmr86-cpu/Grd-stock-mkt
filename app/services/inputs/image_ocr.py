@@ -10,7 +10,7 @@ Config
 ------
     {"paths": ["data/documents/scan1.png"]}
     {"dir": "data/documents/images", "glob": "**/*.{png,jpg,jpeg,tif}"}
-    {"doc_type": "scanned_document", "backend": "tesseract"}
+    {"doc_type": "scanned_document", "backend": "tesseract", "ticker": "RELIANCE"}
 """
 
 from __future__ import annotations
@@ -88,6 +88,7 @@ class ImageOcrConnector(InputConnector):
         backend = self._cfg("backend", getattr(settings, "ocr_backend", "stub"))
         ocr = _BACKENDS[backend]
         doc_type = self._cfg("doc_type", "scanned_document")
+        ticker = self._cfg("ticker")
         for path in self._files():
             if not path.exists():
                 log.warning("image not found: %s", path)
@@ -97,12 +98,10 @@ class ImageOcrConnector(InputConnector):
             except Exception as exc:  # noqa: BLE001
                 log.warning("OCR failed %s: %s", path, exc)
                 continue
+            meta = {"filename": path.name, "title": path.stem,
+                   "doc_type": doc_type, "ocr_backend": backend, "chars": len(text)}
+            if ticker:
+                meta["tickers"] = [ticker.upper()]
             yield ConnectorResult.of_docs(
-                [DocItem(
-                    text=text,
-                    source_key=str(path.resolve()),
-                    metadata={"filename": path.name, "title": path.stem,
-                              "doc_type": doc_type, "ocr_backend": backend,
-                              "chars": len(text)},
-                )]
+                [DocItem(text=text, source_key=str(path.resolve()), metadata=meta)]
             )

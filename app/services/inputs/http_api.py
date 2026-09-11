@@ -122,6 +122,7 @@ class HttpApiConnector(InputConnector):
         id_field = self._cfg("id_field", "id")
         meta_fields = self._cfg("meta_fields", [])
         doc_type = self._cfg("doc_type", "api")
+        ticker = self._cfg("ticker")
         docs: list[DocItem] = []
         for it in items:
             text = "\n\n".join(str(it[f]) for f in text_fields if it.get(f))
@@ -130,5 +131,7 @@ class HttpApiConnector(InputConnector):
                     **{f: it.get(f) for f in meta_fields}}
             if it.get("title"):
                 meta["title"] = it["title"]
+            if ticker:
+                meta["tickers"] = [ticker.upper()]
             docs.append(DocItem(text=text, source_key=key, metadata=meta))
         return ConnectorResult.of_docs(docs, url=url)
