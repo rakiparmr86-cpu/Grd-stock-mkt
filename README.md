@@ -64,8 +64,9 @@ React frontend (later)
 
 ## Storage layout
 
-- **PostgreSQL** — configuration, watchlists, strategies, rules, fundamentals,
-  alert history, analysis history, agent run / audit records.
+- **PostgreSQL** — **users / auth**, configuration, watchlists, strategies,
+  rules, fundamentals, input sources, alert history, analysis history, agent
+  run / audit records. Login reads the `users` table here.
 - **TimescaleDB extension** — OHLCV + indicator time series (hypertables).
 - **Qdrant** — annual / quarterly reports, corporate announcements, news,
   research notes, own analysis, strategy knowledge.
@@ -78,7 +79,7 @@ cp .env.example .env                # then edit secrets (SECRET_KEY!)
 docker compose up -d postgres redis qdrant
 pip install -e ".[dev]"
 alembic upgrade head
-python scripts/seed_data.py          # demo data + login: demo@grd-stk-mkt.local / 1223456
+python scripts/seed_data.py          # demo data + login: demo@grd-stk-mkt.dev / 1223456
 uvicorn app.main:app --reload        # http://localhost:8000/docs
 
 # workers (separate shells)

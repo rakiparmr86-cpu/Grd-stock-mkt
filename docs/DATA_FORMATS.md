@@ -176,7 +176,7 @@ sanitised, uuid-prefixed name.
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/api/v1/auth/login \
-        -d 'username=demo@grd-stk-mkt.local&password=1223456' | jq -r .access_token)
+        -d 'username=demo@grd-stk-mkt.dev&password=1223456' | jq -r .access_token)
 
 curl -H "Authorization: Bearer $TOKEN" \
      -F "files=@AR2024.pdf" -F "files=@prices.csv" \

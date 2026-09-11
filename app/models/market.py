@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, Float, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
 
@@ -33,10 +33,13 @@ class OHLCV(Base):
     __tablename__ = "ohlcv"
     __table_args__ = (UniqueConstraint("ticker", "interval", "ts"),)
 
+    # ``ts`` is part of the primary key (composite id+ts) because TimescaleDB
+    # requires every unique index / PK on a hypertable to include the
+    # partitioning column — create_hypertable() rejects a bare `id` PK.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(String(32), index=True)
     interval: Mapped[str] = mapped_column(String(8), default="1d")  # 1m,5m,15m,1h,1d
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
     open: Mapped[float] = mapped_column(Numeric(18, 4))
     high: Mapped[float] = mapped_column(Numeric(18, 4))
     low: Mapped[float] = mapped_column(Numeric(18, 4))
@@ -66,10 +69,11 @@ class IndicatorPoint(Base):
     __tablename__ = "indicator_points"
     __table_args__ = (UniqueConstraint("ticker", "interval", "name", "ts"),)
 
+    # see OHLCV.ts — composite id+ts PK so create_hypertable() accepts it.
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(String(32), index=True)
     interval: Mapped[str] = mapped_column(String(8), default="1d")
     name: Mapped[str] = mapped_column(String(48), index=True)  # rsi_14, macd, ema_20 ...
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
     value: Mapped[float] = mapped_column(Float)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)  # e.g. macd signal/hist

@@ -2,6 +2,14 @@
 
 How the database is managed and how every change stays tracked and reviewable.
 
+**Which database:** one **PostgreSQL** instance (TimescaleDB image), database
+`grd_stk_mkt` by default. It holds *all* relational data — `users` (auth),
+config, watchlists, strategies, rules, input sources, market fundamentals, and
+the analysis history / audit tables. `/auth/login` reads the `users` table here.
+Redis (cache/queue) and Qdrant (vectors) are separate and are **not** touched by
+migrations. Connection: `settings.sqlalchemy_url` — see
+[CONFIGURATION.md](CONFIGURATION.md#postgresql--timescaledb).
+
 ## Approach: versioned migrations (Alembic), not init scripts
 
 The relational schema lives in **SQLAlchemy models** (`app/models/`). Every

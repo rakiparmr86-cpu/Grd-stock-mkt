@@ -75,3 +75,27 @@ def test_duplicate_register_409(client):
     client.post("/api/v1/auth/register", json={"email": "e@f.com", "password": PW})
     r = client.post("/api/v1/auth/register", json={"email": "e@f.com", "password": PW})
     assert r.status_code == 409
+
+
+def test_demo_credentials_survive_register_login_me(client):
+    """Regression: a seeded email using an RFC 6761 special-use suffix
+    (.local/.test/.invalid/.localhost) passes DB insert but fails pydantic's
+    EmailStr on the way out of GET /auth/me (ResponseValidationError -> 500).
+    Exercise the real demo credentials end to end so a bad domain is caught
+    here instead of live in the frontend."""
+    from scripts.seed_data import DEMO_EMAIL, DEMO_PASSWORD
+
+    r = client.post(
+        "/api/v1/auth/register", json={"email": DEMO_EMAIL, "password": DEMO_PASSWORD}
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.post(
+        "/api/v1/auth/login", data={"username": DEMO_EMAIL, "password": DEMO_PASSWORD}
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["access_token"]
+
+    r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text  # would be 500 for a .local/.test/.invalid email
+    assert r.json()["email"] == DEMO_EMAIL

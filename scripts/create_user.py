@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import select
 
 from app.core.database import session_scope
@@ -29,6 +30,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if len(args.password) < 8:
         ap.error("password must be at least 8 characters")
+    try:
+        # check_deliverability=False: syntax only, no DNS lookup — but this
+        # still catches RFC 6761 special-use domains (.local/.test/.invalid/
+        # .localhost), which would otherwise insert fine here and then 500 on
+        # any endpoint returning UserOut (email: EmailStr) for this user.
+        validate_email(args.email, check_deliverability=False)
+    except EmailNotValidError as exc:
+        ap.error(f"invalid email {args.email!r}: {exc}")
 
     with session_scope() as db:
         user = db.execute(

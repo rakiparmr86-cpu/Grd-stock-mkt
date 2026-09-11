@@ -25,7 +25,12 @@ from app.models.inputs import InputSource
 from app.models.market import Instrument
 from app.models.user import User
 
-DEMO_EMAIL = "demo@grd-stk-mkt.local"
+DEMO_EMAIL = "demo@grd-stk-mkt.dev"
+# NOTE: don't use a .local/.test/.invalid/.localhost domain — pydantic's
+# EmailStr (via email-validator) rejects those RFC 6761 special-use suffixes,
+# which breaks any endpoint that returns UserOut (e.g. GET /auth/me) for this
+# user with a 500, even though the row inserts fine (this script bypasses
+# UserCreate's input validation).
 DEMO_PASSWORD = "1223456"
 
 TICKERS = ["RELIANCE", "TCS", "INFY"]

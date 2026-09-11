@@ -48,7 +48,7 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | Notifications | SMTP email (MailHog in dev) | ✅ email · ⬜ WhatsApp/Telegram |
 | Frontend | Vite + React 19 (`frontend/my-react-app`) | 🟡 skeleton only |
 | Auth | JWT (PyJWT) + bcrypt (direct), OAuth2 password flow; enforced on `/inputs/*` | ✅ |
-| Tests | pytest — indicators, signal engine, inputs, security, API auth gate; agent graph skips without langgraph | ✅ 48 pass, 1 skip |
+| Tests | pytest — indicators, signal engine, inputs, security, API auth gate; agent graph skips without langgraph | ✅ 57 pass, 1 skip (58 with langgraph) |
 
 ---
 
@@ -188,9 +188,14 @@ to hypertables. `0002_input_sources.py` adds `input_sources`. Later changes use
 rollout: [DATABASE.md](DATABASE.md)**. `docker compose up` runs a one-shot
 `migrate` service before `api`/`worker`/`beat`.
 
+All of the below live in the **one PostgreSQL database** (`grd_stk_mkt` by
+default, URL = `settings.sqlalchemy_url`) — auth included: `/auth/login` and
+`/auth/register` hit the `users` table here through the standard `get_db`
+session. Redis/Qdrant play no part in auth.
+
 | Table | Key columns | Notes |
 | --- | --- | --- |
-| `users` | email (uniq), hashed_password, is_active, is_superuser | JWT `sub` = `users.id` |
+| `users` | email (uniq), hashed_password, is_active, is_superuser | **auth** — `/auth/login` SELECTs by `email`; JWT `sub` = `users.id` |
 | `input_sources` | name (uniq), connector, kind, `config` JSONB, is_active, schedule_cron, last_run_at/status/error/stats | pluggable inputs (§11a); Beat reads `schedule_cron` |
 | `watchlists` / `watchlist_items` | name; (watchlist_id, ticker) uniq, weight | `is_active` gates scheduled scans |
 | `strategies` | name (uniq), `params` JSONB, is_active | `params` feeds calc spec + agent plan |
@@ -515,7 +520,7 @@ token refresh (token just expires → re-login). See WORKFLOW §Frontend.
 
 ## 16. Tests
 
-`pytest -q` → **48 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **57 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.

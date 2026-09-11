@@ -33,12 +33,12 @@ pip install -e ".[dev]"
 # 4. database schema
 alembic upgrade head
 
-# 5. demo data + a demo login (demo@grd-stk-mkt.local / 1223456)
+# 5. demo data + a demo login (demo@grd-stk-mkt.dev / 1223456)
 python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 48 passed, 1 skipped (49 with langgraph installed)
+pytest -q            # expect: 57 passed, 1 skipped (58 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -341,6 +341,9 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-10 — docs: made explicit that auth (`/auth/login` + `users` table)
+  lives in the same PostgreSQL DB as everything else, not Redis/Qdrant —
+  README storage layout, TECHNICAL §6, CONFIGURATION Postgres section, DATABASE.md.
 - 2026-09-10 — logging: added rotating file logs. `app/core/logging.py` now
   writes `logs/app.log` (LOG_LEVEL+) and `logs/errors.log` (WARNING+ with
   tracebacks) alongside the console; settings `LOG_LEVEL/LOG_DIR/LOG_FILE/
@@ -349,6 +352,31 @@ Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)
   `celery_app.py` gains `setup_logging` (keep our handlers) + `task_failure`
   (every failed task → `errors.log`). `logs/` git-ignored. Tests +3
   (`test_logging.py`), 52 pass.
+- 2026-09-11 — fixed three bugs found while first-running the DB against a real
+  Postgres (the `compare_server_default`/CI work in the entries below had never
+  actually been exercised end-to-end until now):
+  1. **`create_hypertable` rejected `ohlcv`/`indicator_points`** — their `id`
+     was a standalone PK that didn't include the partitioning column `ts`,
+     which TimescaleDB requires on every unique index. Fixed: `ts` is now part
+     of a composite `(id, ts)` primary key on both models
+     ([app/models/market.py](../app/models/market.py)).
+  2. **`migrations/versions/0001_initial.py` and `0002_input_sources.py` both
+     tried to create `input_sources`** — `0001` builds from `Base.metadata`,
+     which now includes every model, not just the ones that existed when `0001`
+     was authored. Fixed: `0001` is pinned to an explicit `_OWNED_TABLES` list;
+     future tables are only ever created by their own migration, never by
+     widening that list.
+  3. **`GET /auth/me` 500'd for the seeded demo user** — `demo@grd-stk-mkt.local`
+     inserts fine (seeding bypasses `UserCreate`'s input validation) but fails
+     `UserOut.email: EmailStr` on the way *out*, because `.local` is an
+     RFC 6761 special-use reserved suffix. Fixed: demo email is now
+     `demo@grd-stk-mkt.dev`; `scripts/create_user.py` now validates the email
+     up front so this can't happen via that path either. Regression tests:
+     `test_demo_credentials_survive_register_login_me` (register→login→`/me`
+     for the real demo creds) and `test_create_user_script.py`.
+  Also dropped two dead imports in `market.py` (`ForeignKey`, `relationship`).
+  Verified live end-to-end (real Postgres, not just tests): seed → login →
+  `/auth/me` → `/inputs` all 200. `pytest -q` → 58 passed (was 52; +6).
 - 2026-09-10 — db: documented + tightened migration management. New
   `docs/DATABASE.md` (workflow, conventions, expand/migrate/contract, raw-SQL
   option). `Makefile` `db-new/db-up/db-down/db-redo/db-current/db-history/
@@ -367,7 +395,7 @@ Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)
   `Depends(get_current_user)`). Password hashing switched from passlib to
   `bcrypt` directly (`security.py`) — passlib 1.7.4 breaks on bcrypt ≥ 5;
   `pyproject` dep `passlib[bcrypt]` → `bcrypt>=4.0`. `scripts/create_user.py`
-  added; `seed_data.py` seeds `demo@grd-stk-mkt.local` / `1223456`. Frontend:
+  added; `seed_data.py` seeds `demo@grd-stk-mkt.dev` / `1223456`. Frontend:
   `src/api.js` (token + `api()` wrapper) + `src/AuthForm.jsx` (login / register)
   + `App.jsx` auth gate. Tests: +8 (`test_security.py`, `test_auth_api.py`);
   `pytest -q` → 48 pass, 1 skip. Docs: TECHNICAL §2/§8/§14/§16/§17, WORKFLOW,

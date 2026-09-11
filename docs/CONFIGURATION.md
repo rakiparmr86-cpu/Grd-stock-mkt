@@ -55,9 +55,15 @@ Celery failures are caught by a `task_failure` handler in
 | `POSTGRES_DB` | `grd_stk_mkt` | Database name. |
 | `DATABASE_URL` | *(unset)* | Full SQLAlchemy URL. **If set, overrides all `POSTGRES_*`.** Must start `postgresql+psycopg://`. |
 
-If the DB is unreachable: API `/health/ready` reports `postgres: error`; Celery
-Beat logs `dynamic schedule load skipped` and runs with static schedule only;
-most tasks fail loudly.
+This one PostgreSQL database holds **everything relational**, including
+`users` — so **`POST /auth/login` / `/auth/register` read and write the `users`
+table here** (via the same `get_db` session pool as every other endpoint). Redis
+and Qdrant are not involved in auth. Effective URL is
+`settings.sqlalchemy_url` (built from the parts above, or `DATABASE_URL`).
+
+If the DB is unreachable: **login returns 500, not 401**; API `/health/ready`
+reports `postgres: error`; Celery Beat logs `dynamic schedule load skipped` and
+runs with the static schedule only; most tasks fail loudly.
 
 ## Redis
 
