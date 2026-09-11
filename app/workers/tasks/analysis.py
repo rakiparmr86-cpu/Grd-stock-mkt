@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
-
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.config import Strategy, Watchlist, WatchlistItem
+from app.repositories.strategy import StrategyRepository
+from app.repositories.watchlist import WatchlistRepository
 from app.services.orchestrator import analyze_ticker, close_run, open_run
 from app.workers.celery_app import celery_app
 from app.workers.tasks.notifications import send_report_alert
@@ -42,14 +41,9 @@ def analyze_ticker_task(self, ticker: str, strategy_id: int | None = None,
 def scan_watchlist(watchlist_id: int, strategy_id: int | None = None,
                    notify_to: str | None = None) -> dict:
     with session_scope() as db:
-        wl = db.get(Watchlist, watchlist_id)
-        tickers = [i.ticker for i in db.execute(
-            select(WatchlistItem).where(WatchlistItem.watchlist_id == watchlist_id)
-        ).scalars()]
+        tickers = WatchlistRepository(db).tickers(watchlist_id)
         if strategy_id is None:
-            strategy_id = db.execute(
-                select(Strategy.id).where(Strategy.is_active.is_(True)).limit(1)
-            ).scalar_one_or_none()
+            strategy_id = StrategyRepository(db).active_id()
 
     run_id = open_run("schedule", strategy_id=strategy_id, watchlist_id=watchlist_id,
                       context={"tickers": tickers})
@@ -74,9 +68,7 @@ def scan_watchlist(watchlist_id: int, strategy_id: int | None = None,
 @celery_app.task(name="app.workers.tasks.analysis.scan_all_watchlists")
 def scan_all_watchlists() -> dict:
     with session_scope() as db:
-        ids = list(db.execute(
-            select(Watchlist.id).where(Watchlist.is_active.is_(True))
-        ).scalars())
+        ids = WatchlistRepository(db).list_active_ids()
     for wid in ids:
         scan_watchlist.delay(wid)
     return {"dispatched": len(ids)}

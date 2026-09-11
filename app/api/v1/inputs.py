@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
 
-from app.api.deps import DbSession
+from app.api.deps import DbSession, InputSourceRepo
 from app.models.inputs import InputSource
 from app.schemas.inputs import (
     CrawlRequest,
@@ -32,39 +31,38 @@ def connectors() -> list[dict]:
 
 
 @router.get("", response_model=list[InputSourceOut])
-def list_sources(db: DbSession) -> list[InputSource]:
-    return list(db.execute(select(InputSource).order_by(InputSource.id)).scalars())
+def list_sources(sources: InputSourceRepo) -> list[InputSource]:
+    return sources.list_all()
 
 
 @router.post("", response_model=InputSourceOut, status_code=201)
-def create_source(payload: InputSourceCreate, db: DbSession) -> InputSource:
-    if db.execute(
-        select(InputSource).where(InputSource.name == payload.name)
-    ).scalar_one_or_none():
+def create_source(payload: InputSourceCreate, db: DbSession,
+                  sources: InputSourceRepo) -> InputSource:
+    if sources.by_name(payload.name):
         raise HTTPException(409, "input source name already exists")
     # fail fast on a bad config
     try:
         get_connector(payload.connector, payload.config)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(422, f"invalid connector config: {exc}") from exc
-    src = InputSource(**payload.model_dump())
-    db.add(src)
+    src = sources.add(InputSource(**payload.model_dump()))
     db.commit()
     db.refresh(src)
     return src
 
 
 @router.get("/{source_id}", response_model=InputSourceOut)
-def get_source(source_id: int, db: DbSession) -> InputSource:
-    src = db.get(InputSource, source_id)
+def get_source(source_id: int, sources: InputSourceRepo) -> InputSource:
+    src = sources.get(source_id)
     if not src:
         raise HTTPException(404, "input source not found")
     return src
 
 
 @router.patch("/{source_id}", response_model=InputSourceOut)
-def update_source(source_id: int, payload: InputSourceUpdate, db: DbSession) -> InputSource:
-    src = db.get(InputSource, source_id)
+def update_source(source_id: int, payload: InputSourceUpdate, db: DbSession,
+                  sources: InputSourceRepo) -> InputSource:
+    src = sources.get(source_id)
     if not src:
         raise HTTPException(404, "input source not found")
     data = payload.model_dump(exclude_unset=True)
@@ -83,16 +81,17 @@ def update_source(source_id: int, payload: InputSourceUpdate, db: DbSession) -> 
 
 
 @router.delete("/{source_id}", status_code=204)
-def delete_source(source_id: int, db: DbSession) -> None:
-    src = db.get(InputSource, source_id)
+def delete_source(source_id: int, db: DbSession, sources: InputSourceRepo) -> None:
+    src = sources.get(source_id)
     if src:
-        db.delete(src)
+        sources.delete(src)
         db.commit()
 
 
 @router.post("/{source_id}/run", response_model=InputRunResponse)
-def run_source(source_id: int, db: DbSession, async_: bool = True) -> InputRunResponse:
-    src = db.get(InputSource, source_id)
+def run_source(source_id: int, db: DbSession, sources: InputSourceRepo,
+               async_: bool = True) -> InputRunResponse:
+    src = sources.get(source_id)
     if not src:
         raise HTTPException(404, "input source not found")
     if async_:
@@ -113,6 +112,7 @@ def run_source(source_id: int, db: DbSession, async_: bool = True) -> InputRunRe
 @router.post("/upload", response_model=UploadResponse)
 async def upload_files(
     db: DbSession,
+    sources: InputSourceRepo,
     files: Annotated[list[UploadFile], File(description="one or more data/document files")],
     mode: Annotated[str, Form()] = "ingest_once",       # ingest_once | save_source
     excel_mode: Annotated[str, Form()] = "docs",         # docs | rows
@@ -154,11 +154,10 @@ async def upload_files(
                                connector=connector, kind=kind, mode=mode)
         if mode == "save_source":
             base = (name_prefix or "Upload").strip()
-            src = InputSource(
+            src = sources.add(InputSource(
                 name=f"{base}: {path.name}", connector=connector,
                 kind=kind, config=cfg, is_active=True, schedule_cron=schedule_cron,
-            )
-            db.add(src)
+            ))
             db.commit()
             db.refresh(src)
             res.source_id = src.id
@@ -174,7 +173,7 @@ async def upload_files(
 
 
 @router.post("/crawl", response_model=InputRunResponse)
-def crawl_url(payload: CrawlRequest, db: DbSession) -> InputRunResponse:
+def crawl_url(payload: CrawlRequest, db: DbSession, sources: InputSourceRepo) -> InputRunResponse:
     """Kick off a web crawl from URL(s) supplied by the frontend.
 
     Secrets never travel in this body — ``auth`` names environment variables
@@ -212,11 +211,10 @@ def crawl_url(payload: CrawlRequest, db: DbSession) -> InputRunResponse:
     from app.workers.tasks.inputs import run_adhoc_connector, run_input_source
 
     if payload.save_as:
-        src = InputSource(
+        src = sources.add(InputSource(
             name=payload.save_as, connector="web_crawler", kind="docs",
             config=cfg, is_active=payload.is_active, schedule_cron=payload.schedule_cron,
-        )
-        db.add(src)
+        ))
         db.commit()
         db.refresh(src)
         task = run_input_source.delay(src.id)

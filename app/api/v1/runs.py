@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
 
-from app.api.deps import DbSession
-from app.models.history import AgentDecision, AnalysisRun
+from app.api.deps import AgentDecisionRepo, RunRepo
+from app.models.history import AnalysisRun
 from app.schemas.history import RunOut
 
 router = APIRouter()
@@ -20,29 +19,24 @@ class RunRequest(BaseModel):
 
 
 @router.get("", response_model=list[RunOut])
-def list_runs(db: DbSession, limit: int = 50) -> list[AnalysisRun]:
-    return list(
-        db.execute(select(AnalysisRun).order_by(AnalysisRun.id.desc()).limit(limit)).scalars()
-    )
+def list_runs(runs: RunRepo, limit: int = 50) -> list[AnalysisRun]:
+    return runs.list_recent(limit)
 
 
 @router.get("/{run_id}", response_model=RunOut)
-def get_run(run_id: int, db: DbSession) -> AnalysisRun:
-    run = db.get(AnalysisRun, run_id)
+def get_run(run_id: int, runs: RunRepo) -> AnalysisRun:
+    run = runs.get(run_id)
     if not run:
         raise HTTPException(404, "run not found")
     return run
 
 
 @router.get("/{run_id}/decisions")
-def get_run_decisions(run_id: int, db: DbSession) -> list[dict]:
-    rows = db.execute(
-        select(AgentDecision).where(AgentDecision.run_id == run_id).order_by(AgentDecision.step)
-    ).scalars()
+def get_run_decisions(run_id: int, decisions: AgentDecisionRepo) -> list[dict]:
     return [
         {"agent": d.agent, "step": d.step, "rationale": d.rationale,
          "output": d.output, "latency_ms": d.latency_ms}
-        for d in rows
+        for d in decisions.list_for_run(run_id)
     ]
 
 

@@ -10,6 +10,13 @@ Redis (cache/queue) and Qdrant (vectors) are separate and are **not** touched by
 migrations. Connection: `settings.sqlalchemy_url` — see
 [CONFIGURATION.md](CONFIGURATION.md#postgresql--timescaledb).
 
+**How code talks to it:** through the **repository layer**
+(`app/repositories/`) — one class per aggregate root wrapping a `Session`, never
+raw `db.execute(select(...))` scattered through routers/tasks. See
+[TECHNICAL.md](TECHNICAL.md) §6a for the classes and the convention (repos
+never commit — the caller does) and WORKFLOW §4 "Add a repository" for how to
+extend it.
+
 ## Approach: versioned migrations (Alembic), not init scripts
 
 The relational schema lives in **SQLAlchemy models** (`app/models/`). Every

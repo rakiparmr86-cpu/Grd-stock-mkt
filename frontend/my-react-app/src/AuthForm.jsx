@@ -32,7 +32,7 @@ export default function AuthForm({ onAuthed }) {
   return (
     <div className="auth-wrap">
       <form className="card auth" onSubmit={submit}>
-        <h1>grd-stk-mkt</h1>
+        <h1></h1>
         <div className="tabs">
           <button
             type="button"

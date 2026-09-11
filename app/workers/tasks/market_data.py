@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
-
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.config import Watchlist, WatchlistItem
+from app.repositories.watchlist import WatchlistRepository
 from app.services.market_data import get_provider, normalize_ohlcv
 from app.services.market_data.repository import upsert_ohlcv
 from app.workers.celery_app import celery_app
@@ -30,10 +28,7 @@ def refresh_ticker(ticker: str, provider: str | None = None, lookback_days: int 
 @celery_app.task(name="app.workers.tasks.market_data.refresh_watchlist")
 def refresh_watchlist(watchlist_id: int, provider: str | None = None) -> dict:
     with session_scope() as db:
-        items = list(db.execute(
-            select(WatchlistItem).where(WatchlistItem.watchlist_id == watchlist_id)
-        ).scalars())
-        tickers = [i.ticker for i in items]
+        tickers = WatchlistRepository(db).tickers(watchlist_id)
     results = []
     for t in tickers:
         try:
@@ -47,9 +42,7 @@ def refresh_watchlist(watchlist_id: int, provider: str | None = None) -> dict:
 @celery_app.task(name="app.workers.tasks.market_data.refresh_all_watchlists")
 def refresh_all_watchlists(provider: str | None = None) -> dict:
     with session_scope() as db:
-        ids = list(db.execute(
-            select(Watchlist.id).where(Watchlist.is_active.is_(True))
-        ).scalars())
+        ids = WatchlistRepository(db).list_active_ids()
     for wid in ids:
         refresh_watchlist.delay(wid, provider=provider)
     return {"dispatched": len(ids)}

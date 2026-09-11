@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import select
-
 from app.core.config import settings
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.market import Instrument
+from app.repositories.instrument import InstrumentRepository
 from app.services.rag.ingest import ingest_document
 from app.workers.celery_app import celery_app
 
@@ -23,7 +21,7 @@ _SUFFIXES = {".pdf", ".txt", ".md", ".html", ".htm"}
 def _known_tickers() -> set[str]:
     try:
         with session_scope() as db:
-            return {t for (t,) in db.execute(select(Instrument.ticker)).all()}
+            return InstrumentRepository(db).all_tickers()
     except Exception:  # noqa: BLE001
         return set()
 

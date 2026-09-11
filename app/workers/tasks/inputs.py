@@ -8,11 +8,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
-
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.inputs import InputSource
+from app.repositories.input_source import InputSourceRepository
 from app.services.inputs.registry import get_connector
 from app.services.inputs.sink import run_connector
 from app.workers.celery_app import celery_app
@@ -23,7 +21,7 @@ log = get_logger(__name__)
 @celery_app.task(name="app.workers.tasks.inputs.run_input_source", bind=True)
 def run_input_source(self, source_id: int) -> dict:
     with session_scope() as db:
-        src = db.get(InputSource, source_id)
+        src = InputSourceRepository(db).get(source_id)
         if src is None:
             return {"source_id": source_id, "status": "not_found"}
         name, connector, config = src.name, src.connector, dict(src.config or {})
@@ -40,7 +38,7 @@ def run_input_source(self, source_id: int) -> dict:
         stats, status, error = {}, "error", str(exc)
 
     with session_scope() as db:
-        src = db.get(InputSource, source_id)
+        src = InputSourceRepository(db).get(source_id)
         if src:
             src.last_status = status
             src.last_error = error
@@ -67,9 +65,7 @@ def run_adhoc_connector(connector: str, config: dict, source_name: str) -> dict:
 @celery_app.task(name="app.workers.tasks.inputs.run_all_active_input_sources")
 def run_all_active_input_sources() -> dict:
     with session_scope() as db:
-        ids = list(db.execute(
-            select(InputSource.id).where(InputSource.is_active.is_(True))
-        ).scalars())
+        ids = InputSourceRepository(db).list_active_ids()
     for sid in ids:
         run_input_source.delay(sid)
     return {"dispatched": len(ids)}

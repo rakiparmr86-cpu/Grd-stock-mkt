@@ -38,7 +38,7 @@ python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 57 passed, 1 skipped (58 with langgraph installed)
+pytest -q            # expect: 65 passed, 1 skipped (66 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -200,14 +200,33 @@ Each recipe lists the files to touch **in order**, then the "done when" checks.
 ### Add an API endpoint
 1. `app/schemas/` — request/response Pydantic models (`from_attributes=True` via
    `ORMModel` for DB reads).
-2. `app/api/v1/<area>.py` — the route; use `DbSession` and (to protect it)
-   `user: CurrentUser`.
+2. `app/api/v1/<area>.py` — the route; take the aggregate's repo as a parameter
+   (e.g. `watchlists: WatchlistRepo`) instead of `db.execute(...)` — see "Add a
+   repository" below if one doesn't exist yet. Take `db: DbSession` too when the
+   route needs to `commit()`/`refresh()`. Add `user: CurrentUser` to protect it.
 3. `app/api/v1/router.py` — `include_router` if it's a new area.
 4. `tests/` — add a `TestClient` test (see `tests/test_auth_api.py` for the
    SQLite + `get_db`-override fixture; JSONB-heavy tables need Postgres instead).
-5. To require a login, add `dependencies=[Depends(get_current_user)]` to the
-   `include_router(...)` call in `app/api/v1/router.py` (see `_auth` there).
+5. To require a login for a whole router, add `dependencies=[Depends(get_current_user)]`
+   to its `include_router(...)` call in `app/api/v1/router.py` (see `_auth` there).
 6. Update `TECHNICAL.md` §8 table.
+
+### Add a repository (new aggregate, or wrapping an existing one)
+Convention + full rationale: **TECHNICAL.md §6a**.
+1. `app/repositories/<entity>.py` — `class XRepository(BaseRepository[X]): model = X`,
+   plus whatever query methods that aggregate needs (`by_name`, `list_active`, …).
+   Only `select`/`db.get` in query methods — **never `db.commit()`** here.
+2. `app/repositories/__init__.py` — export it.
+3. Using it from a **route**: add `get_x_repo(db: DbSession) -> XRepository` and
+   `XRepo = Annotated[XRepository, Depends(get_x_repo)]` to `app/api/deps.py`,
+   next to the others.
+4. Using it from a **task / service**: `with session_scope() as db: XRepository(db).method(...)`
+   — no `Depends`, just construct it.
+5. `tests/test_repositories.py` if the model has no JSONB column (SQLite works);
+   otherwise rely on a live/`TestClient` test against Postgres (JSONB isn't
+   supported on SQLite).
+6. **Done when:** the router/task using it has zero direct `db.execute(select(...))`
+   calls; `pytest -q` green.
 
 ### Add / change a DB model
 Full detail + conventions: **[DATABASE.md](DATABASE.md)**.
@@ -341,6 +360,22 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-11 — architecture: added a **repository layer**, `app/repositories/`
+  — `BaseRepository[ModelT]` (get/list/add/delete, never commits) + one repo
+  per aggregate: `User`, `Watchlist`, `Strategy`, `Rule`, `InputSource`,
+  `AnalysisRun`, `Signal`, `Report`, `AgentDecision`, `Alert`, `Schedule`,
+  `Instrument`. Wired everywhere DB access used to be raw `db.execute(select(...))`:
+  every `app/api/v1/*.py` router (via new `Depends`-wrapped aliases in
+  `app/api/deps.py` — `UserRepo`, `WatchlistRepo`, … — `get_current_user` too),
+  `app/services/orchestrator.py`, `app/workers/beat_schedule.py`, and all of
+  `app/workers/tasks/*.py`. `market_data/repository.py` and `QdrantStore` stay
+  as they were (function/gateway style already matches the convention — see
+  TECHNICAL §6a for why they weren't forced into the same class shape).
+  Tests: +7 (`test_repositories.py`, SQLite — `User`/`Watchlist` are the only
+  aggregates without a JSONB column). Verified live end-to-end against real
+  Postgres: every router 200s through its repo; a sync run trigger exercises
+  `AnalysisRunRepository.open_run/close` for real. `pytest -q` → 65 passed,
+  1 skipped. `alembic check` unaffected (pure code layer, no schema change).
 - 2026-09-10 — docs: made explicit that auth (`/auth/login` + `users` table)
   lives in the same PostgreSQL DB as everything else, not Redis/Qdrant —
   README storage layout, TECHNICAL §6, CONFIGURATION Postgres section, DATABASE.md.

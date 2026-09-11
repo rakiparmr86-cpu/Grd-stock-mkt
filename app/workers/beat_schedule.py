@@ -50,28 +50,19 @@ def _cron_from_str(expr: str) -> crontab:
 def build_beat_schedule() -> dict:
     schedule = dict(_STATIC)
     try:
-        from sqlalchemy import select
-
         from app.core.database import session_scope
-        from app.models.config import Schedule
-        from app.models.inputs import InputSource
+        from app.repositories.input_source import InputSourceRepository
+        from app.repositories.schedule import ScheduleRepository
 
         with session_scope() as db:
-            for row in db.execute(
-                select(Schedule).where(Schedule.is_active.is_(True))
-            ).scalars():
+            for row in ScheduleRepository(db).list_active():
                 schedule[f"db:{row.name}"] = {
                     "task": row.task,
                     "schedule": _cron_from_str(row.cron),
                     "kwargs": row.args or {},
                 }
 
-            for src in db.execute(
-                select(InputSource).where(
-                    InputSource.is_active.is_(True),
-                    InputSource.schedule_cron.is_not(None),
-                )
-            ).scalars():
+            for src in InputSourceRepository(db).list_active_scheduled():
                 schedule[f"input:{src.name}"] = {
                     "task": "app.workers.tasks.inputs.run_input_source",
                     "schedule": _cron_from_str(src.schedule_cron),

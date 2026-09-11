@@ -9,16 +9,18 @@ Used by the Celery analysis tasks and by the ``POST /runs`` API endpoint.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
-
-from sqlalchemy import select
 
 from app.agents.graph import run_analysis
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.config import Rule, Strategy
-from app.models.history import AgentDecision, AnalysisRun, Report, Signal
+from app.models.history import AgentDecision, Report, Signal
+from app.repositories.agent_decision import AgentDecisionRepository
+from app.repositories.report import ReportRepository
+from app.repositories.rule import RuleRepository
+from app.repositories.run import AnalysisRunRepository
+from app.repositories.signal import SignalRepository
+from app.repositories.strategy import StrategyRepository
 from app.services.calculations.engine import compute_indicators
 from app.services.market_data.repository import load_ohlcv_frame, upsert_indicator_points
 from app.services.reports.renderer import render_report
@@ -27,14 +29,11 @@ from app.services.signals.engine import SignalEngine
 log = get_logger(__name__)
 
 
-def _active_rules(db, strategy_id: int | None) -> tuple[list[Rule], dict[str, Any]]:
-    q = select(Rule).where(Rule.is_active.is_(True))
-    if strategy_id is not None:
-        q = q.where(Rule.strategy_id == strategy_id)
-    rules = list(db.execute(q).scalars())
+def _active_rules(db, strategy_id: int | None) -> tuple[list, dict[str, Any]]:
+    rules = RuleRepository(db).list_active(strategy_id)
     params: dict[str, Any] = {}
     if strategy_id is not None:
-        strat = db.get(Strategy, strategy_id)
+        strat = StrategyRepository(db).get(strategy_id)
         if strat:
             params = {"name": strat.name, **(strat.params or {})}
     return rules, params
@@ -110,22 +109,26 @@ def analyze_ticker(
 
 def _persist(run_id, ticker, fired, agent_state, payload, rendered) -> None:
     with session_scope() as db:
+        signals = SignalRepository(db)
         for s in fired:
-            db.add(Signal(
+            signals.add(Signal(
                 run_id=run_id, rule_id=s.get("rule_id"), ticker=ticker,
                 signal_type=s.get("signal_type", "alert"),
                 strength=float(s.get("strength", 0.0)), price=s.get("price"),
                 detail=s.get("detail", {}),
             ))
+
+        decisions = AgentDecisionRepository(db)
         for i, d in enumerate(agent_state.get("decisions", [])):
-            db.add(AgentDecision(
+            decisions.add(AgentDecision(
                 run_id=run_id, agent=d.get("agent", "?"), step=d.get("step", i),
                 input=d.get("input", {}), output=d.get("output", {}),
                 rationale=d.get("rationale"), latency_ms=d.get("latency_ms"),
             ))
+
         if payload:
             rec = payload.get("recommendation", {})
-            db.add(Report(
+            ReportRepository(db).add(Report(
                 run_id=run_id, ticker=ticker,
                 title=payload.get("title", f"{ticker} report"),
                 summary=rec.get("thesis"),
@@ -138,20 +141,15 @@ def _persist(run_id, ticker, fired, agent_state, payload, rendered) -> None:
 def open_run(trigger: str, *, strategy_id=None, watchlist_id=None,
              context: dict | None = None) -> int:
     with session_scope() as db:
-        run = AnalysisRun(
-            trigger=trigger, strategy_id=strategy_id, watchlist_id=watchlist_id,
-            status="running", started_at=datetime.now(timezone.utc),
-            context=context or {},
+        run = AnalysisRunRepository(db).open_run(
+            trigger, strategy_id=strategy_id, watchlist_id=watchlist_id, context=context,
         )
-        db.add(run)
-        db.flush()
         return run.id
 
 
 def close_run(run_id: int, status: str = "done", error: str | None = None) -> None:
     with session_scope() as db:
-        run = db.get(AnalysisRun, run_id)
+        runs = AnalysisRunRepository(db)
+        run = runs.get(run_id)
         if run:
-            run.status = status
-            run.error = error
-            run.finished_at = datetime.now(timezone.utc)
+            runs.close(run, status=status, error=error)

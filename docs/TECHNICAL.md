@@ -48,7 +48,7 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | Notifications | SMTP email (MailHog in dev) | ✅ email · ⬜ WhatsApp/Telegram |
 | Frontend | Vite + React 19 (`frontend/my-react-app`) | 🟡 skeleton only |
 | Auth | JWT (PyJWT) + bcrypt (direct), OAuth2 password flow; enforced on `/inputs/*` | ✅ |
-| Tests | pytest — indicators, signal engine, inputs, security, API auth gate; agent graph skips without langgraph | ✅ 57 pass, 1 skip (58 with langgraph) |
+| Tests | pytest — indicators, signal engine, inputs, security, API auth gate, repositories; agent graph skips without langgraph | ✅ 65 pass, 1 skip (66 with langgraph) |
 
 ---
 
@@ -71,8 +71,10 @@ Grd-stock-mkt/
 │   │   ├── market.py            instruments, ohlcv, fundamentals, indicator_points
 │   │   └── history.py           analysis_runs, signals, reports, alerts, agent_decisions
 │   ├── schemas/                 Pydantic v2 request/response models
+│   ├── repositories/            data-access layer, one repo per aggregate root (see §6a)
 │   ├── api/
-│   │   ├── deps.py              DbSession, get_current_user, CurrentUser
+│   │   ├── deps.py              DbSession + one Depends-wrapped repo per aggregate,
+│   │   │                        get_current_user, CurrentUser
 │   │   └── v1/                  routers: auth, watchlists, strategies, rules, inputs,
 │   │                            runs, signals, reports, health  (see §8)
 │   ├── services/
@@ -92,7 +94,7 @@ Grd-stock-mkt/
 ├── migrations/                  Alembic — versions/, env.py  (see DATABASE.md)
 ├── scripts/                     seed_data.py (demo data + demo login) · create_user.py
 ├── tests/                       conftest + indicators / signal_engine / inputs /
-│                                security / auth_api / agents_graph
+│                                security / auth_api / repositories / agents_graph
 ├── frontend/my-react-app/       Vite + React 19 — sign-in + Inputs console
 ├── .github/workflows/ci.yml     ruff · pytest · migrations apply/rollback · alembic check
 ├── kubernetes/                  migrate-job.yaml + notes (Job-gated rollout)
@@ -211,6 +213,66 @@ session. Redis/Qdrant play no part in auth.
 | `reports` | run_id, ticker, title, summary, html_path, pdf_path, `payload` | `payload` = agent output minus chart b64 |
 | `alerts` | signal_id/report_id, channel, recipient, status (queued/sent/failed), error | notification audit |
 | `agent_decisions` | run_id, agent, step, `input`, `output`, rationale, latency_ms | **full agent audit trail** |
+
+---
+
+## 6a. Repository layer  ✅
+
+**Files:** `app/repositories/`
+
+One repository class per **aggregate root**, wrapping a `Session`. Nothing else
+talks SQL directly — API routers, the orchestrator, Celery tasks, and
+`beat_schedule.py` all go through a repo.
+
+```python
+class BaseRepository(Generic[ModelT]):
+    def __init__(self, db: Session): ...
+    def get(self, ident) -> ModelT | None: ...
+    def list(self, *where, order_by=None, limit=None) -> Sequence[ModelT]: ...
+    def add(self, obj: ModelT) -> ModelT: ...   # stage + flush, no commit
+    def delete(self, obj: ModelT) -> None: ...
+```
+
+| Repository | Model(s) | Notable methods |
+| --- | --- | --- |
+| `UserRepository` | `User` | `by_email` |
+| `WatchlistRepository` | `Watchlist`, `WatchlistItem` | `list_with_items`, `tickers`, `add_item`, `list_active_ids` |
+| `StrategyRepository` | `Strategy` | `list_with_rules`, `by_name`, `active_id` |
+| `RuleRepository` | `Rule` | `list_for_strategy`, `list_active` |
+| `InputSourceRepository` | `InputSource` | `by_name`, `list_all`, `list_active_ids`, `list_active_scheduled` |
+| `AnalysisRunRepository` | `AnalysisRun` | `list_recent`, `open_run`, `close` |
+| `SignalRepository` | `Signal` | `list_filtered` |
+| `ReportRepository` | `Report` | `list_filtered` |
+| `AgentDecisionRepository` | `AgentDecision` | `list_for_run` |
+| `AlertRepository` | `Alert` | (base only) |
+| `ScheduleRepository` | `Schedule` | `list_active` |
+| `InstrumentRepository` | `Instrument` | `all_tickers` |
+
+**Rules:**
+- **Repositories never `commit()`.** `add()`/`delete()` stage + `flush()` (so a
+  new PK is available); the caller — a route (via the request's `DbSession`), a
+  Celery task (via `session_scope()`), or the orchestrator — owns the
+  transaction and calls `db.commit()`.
+- Repos return **ORM models**. Converting to a Pydantic response happens at the
+  route (`response_model=`), never inside a repo.
+- **Wiring in routes** — `app/api/deps.py` defines one `Depends`-wrapped alias
+  per repo (`UserRepo`, `WatchlistRepo`, …), each built from the same
+  request-scoped `Session` as `DbSession`, so a route can mix `repo.method()`
+  calls with `db.commit()` / `db.refresh()` on the same connection.
+  `get_current_user` itself is now `UserRepository`-based.
+- **Wiring outside requests** — Celery tasks, `orchestrator.py`, and
+  `beat_schedule.py` construct a repo directly from a `session_scope()`
+  session: `with session_scope() as db: WatchlistRepository(db).tickers(id)`.
+- Two things deliberately stay outside this layer: `market_data/repository.py`
+  (bulk time-series upserts — function-style, see §10) and `QdrantStore`
+  (§11, a non-SQL gateway with the same shape). Both predate this layer and
+  already match its spirit; no need to force them into a class per §6a.
+
+**Adding one:** see WORKFLOW § "Add a repository". Tests:
+`tests/test_repositories.py` covers `BaseRepository` generics plus `User` and
+`Watchlist` on SQLite (the only aggregates without a JSONB column); everything
+else is exercised live against real Postgres (`test_auth_api.py`'s pattern +
+CI's Postgres service, see docs/DATABASE.md).
 
 ---
 
@@ -501,9 +563,11 @@ token refresh (token just expires → re-login). See WORKFLOW §Frontend.
   SMTP) may hard-fail the pipeline. Provide a stub path.
 - **Audit everything the agents do** — append to `state["decisions"]`; the
   orchestrator persists it to `agent_decisions`.
-- **DB access outside request handlers** uses `with session_scope() as db:`
-  (commits on clean exit, rolls back on exception). Request handlers use the
-  `DbSession` dependency.
+- **All DB access goes through a repository** (`app/repositories/`, §6a) — no
+  `db.execute(select(...))` in routers, tasks, or services. Request handlers get
+  a repo via `Depends` (`app/api/deps.py`); outside a request, build one from
+  `with session_scope() as db:` (commits on clean exit, rolls back on
+  exception). Repos never commit — the caller does.
 - **Config only through `app.core.config.settings`** — never read `os.environ`
   directly.
 - **Logging** — `from app.core.logging import get_logger`, then `log.exception(...)`
@@ -520,10 +584,12 @@ token refresh (token just expires → re-login). See WORKFLOW §Frontend.
 
 ## 16. Tests
 
-`pytest -q` → **57 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **65 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.
+- `test_repositories.py` — `BaseRepository` generics (get/add/delete/list) plus
+  `UserRepository`/`WatchlistRepository` on SQLite (see §6a for why only these two).
 - `test_indicators.py` — indicator maths + engine contract.
 - `test_signal_engine.py` — AST operators, priority ordering, error handling.
 - `test_agents_graph.py` — graph runs offline; skipped analysts don't execute.
