@@ -45,6 +45,22 @@ workers write to both):
 Celery failures are caught by a `task_failure` handler in
 `app/workers/celery_app.py`.
 
+Both files get a **day-separator banner** before the first line of each
+calendar day, so scrolling a multi-day log shows where each day starts:
+
+```
+--------------------------=11-Sep-25-------------------------------------------------------
+2025-09-11T09:00:03 INFO     app.main | starting grd-stk-mkt (env=dev)
+```
+
+Implementation: `DatedRotatingFileHandler` in `app/core/logging.py`. It's
+per-process (a fresh handler starts knowing nothing) but peeks at the last 4 KB
+of the file before writing, so restarting the app — or `api`/`worker`/`beat`
+all logging to the same `app.log` — doesn't re-stamp the same day repeatedly
+*unless* enough volume has already scrolled that banner out of that 4 KB
+window, in which case a duplicate is possible. That's a deliberate cheap
+trade-off, not a correctness issue — the banner is a scanning aid, not log data.
+
 ## PostgreSQL / TimescaleDB
 
 | Var | Default | Purpose / effect if wrong |

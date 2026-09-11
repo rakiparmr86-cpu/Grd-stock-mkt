@@ -6,12 +6,18 @@ Files (under ``LOG_DIR``, rotated at ``LOG_FILE_MAX_BYTES`` × ``LOG_FILE_BACKUP
 * ``errors.log`` — the **common exception log**: WARNING and above from anywhere
   in the backend (API + Celery), with full tracebacks (``logger.exception`` /
   ``exc_info=True``). Set ``LOG_DIR=""`` to disable file logging.
+
+Both files get a day-separator banner before the first line of each calendar
+day, e.g.::
+
+    --------------------------=11-Sep-25-------------------------------------------------------
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+from datetime import date, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -20,11 +26,60 @@ _CONFIGURED = False
 _FORMAT = "%(asctime)s %(levelname)-8s %(name)s | %(message)s"
 _DATEFMT = "%Y-%m-%dT%H:%M:%S"
 
+_BANNER_LEFT_DASHES = 26
+_BANNER_RIGHT_DASHES = 55
 
-def _rotating(path: Path, level: int, fmt: logging.Formatter) -> RotatingFileHandler:
+
+def _date_banner(day: date) -> str:
+    return f"{'-' * _BANNER_LEFT_DASHES}={day.strftime('%d-%b-%y')}{'-' * _BANNER_RIGHT_DASHES}"
+
+
+class DatedRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that writes a ``_date_banner()`` line before the
+    first record of each new calendar day (including the very first record
+    ever written), so scanning the file shows where each day starts."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._last_banner_date: date | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            if self.shouldRollover(record):
+                self.doRollover()
+                self._last_banner_date = None  # new file -> banner again
+            today = datetime.fromtimestamp(record.created).date()
+            if today != self._last_banner_date:
+                self._last_banner_date = today
+                # Also check the file itself: a different process (worker,
+                # beat, a previous run today) may have already stamped it.
+                if not self._tail_has_banner(_date_banner(today)):
+                    if self.stream is None:
+                        self.stream = self._open()
+                    self.stream.write(_date_banner(today) + self.terminator)
+                    self.stream.flush()
+        except Exception:
+            self.handleError(record)
+        logging.FileHandler.emit(self, record)
+
+    def _tail_has_banner(self, banner: str, window: int = 4096) -> bool:
+        path = Path(self.baseFilename)
+        try:
+            size = path.stat().st_size
+            if size == 0:
+                return False
+            with open(path, "rb") as f:
+                f.seek(max(0, size - window))
+                tail = f.read().decode("utf-8", errors="ignore")
+        except OSError:
+            return False
+        return banner in tail
+
+
+def _rotating(path: Path, level: int, fmt: logging.Formatter) -> DatedRotatingFileHandler:
     from app.core.config import settings
 
-    h = RotatingFileHandler(
+    h = DatedRotatingFileHandler(
         path,
         maxBytes=settings.log_file_max_bytes,
         backupCount=settings.log_file_backups,

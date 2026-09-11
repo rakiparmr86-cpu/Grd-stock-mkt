@@ -38,7 +38,7 @@ python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 65 passed, 1 skipped (66 with langgraph installed)
+pytest -q            # expect: 68 passed, 1 skipped (69 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -360,6 +360,14 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-11 — logging: `app.log` and `errors.log` now stamp a day-separator
+  banner (`--------------------------=11-Sep-25----...`, 91 chars) before each
+  calendar day's first line — `DatedRotatingFileHandler` in
+  `app/core/logging.py`. Checks the file's last 4 KB before writing so
+  restarts / multiple processes logging the same day don't usually duplicate
+  it. Tests +3 (`test_logging.py`): exact format, once-per-day within a
+  process, not duplicated across handler instances. `pytest -q` → 68 passed,
+  1 skipped.
 - 2026-09-11 — architecture: added a **repository layer**, `app/repositories/`
   — `BaseRepository[ModelT]` (get/list/add/delete, never commits) + one repo
   per aggregate: `User`, `Watchlist`, `Strategy`, `Rule`, `InputSource`,
