@@ -10,6 +10,7 @@ from app.api.v1 import (
     runs,
     signals,
     strategies,
+    tasks,
     watchlists,
 )
 
@@ -26,3 +27,4 @@ api_router.include_router(inputs.router, prefix="/inputs", tags=["inputs"], depe
 api_router.include_router(runs.router, prefix="/runs", tags=["runs"])
 api_router.include_router(signals.router, prefix="/signals", tags=["signals"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"], dependencies=_auth)

@@ -48,7 +48,7 @@ Everything is driven by **Celery + Beat** on a schedule, or on demand through th
 | Notifications | SMTP email (MailHog in dev) | ✅ email · ⬜ WhatsApp/Telegram |
 | Frontend | Vite + React 19 (`frontend/my-react-app`) | 🟡 skeleton only |
 | Auth | JWT (PyJWT) + bcrypt (direct), OAuth2 password flow; enforced on `/inputs/*` | ✅ |
-| Tests | pytest — indicators, signal engine, inputs, security, API auth gate, repositories; agent graph skips without langgraph | ✅ 73 pass, 1 skip (74 with langgraph) |
+| Tests | pytest — indicators, signal engine, inputs, security, API auth gate, repositories; agent graph skips without langgraph | ✅ 77 pass, 1 skip (78 with langgraph) |
 
 ---
 
@@ -76,7 +76,7 @@ Grd-stock-mkt/
 │   │   ├── deps.py              DbSession + one Depends-wrapped repo per aggregate,
 │   │   │                        get_current_user, CurrentUser
 │   │   └── v1/                  routers: auth, watchlists, strategies, rules, inputs,
-│   │                            runs, signals, reports, health  (see §8)
+│   │                            runs, signals, reports, tasks, health  (see §8)
 │   ├── services/
 │   │   ├── market_data/         provider ABC + nse/excel/csv/api + normalization + repo
 │   │   ├── inputs/              connector ABC + csv/excel/pdf/image_ocr/web_crawler/
@@ -312,21 +312,19 @@ Base prefix `/api/v1`. Interactive docs at `/docs`.
 | `POST /inputs/{id}/run` · `POST /inputs/test` | run a saved source (async by default); `/test` dry-runs a connector config with capped results, no writes |
 | `POST /inputs/upload` | **frontend**: multipart file upload (CSV/Excel/PDF/image). `mode=ingest_once` queues an ad-hoc ingest per file; `mode=save_source` also creates an `InputSource` row (optionally scheduled) |
 | `POST /inputs/crawl` | **frontend**: start a web crawl from URL(s). SSRF-guarded (private/loopback hosts refused unless `CRAWLER_ALLOW_PRIVATE`); `auth` block names env vars, no raw secrets; `save_as` persists it as a source |
-
-**Every `/inputs/*` route requires a valid bearer token** (router-level
-`Depends(get_current_user)` in `app/api/v1/router.py`). `/health` and `/auth/*`
-are open; the other resource routers are still unauthenticated (see §17).
 | `POST /runs` | trigger analysis for a ticker; `async_=true` → Celery task id, `false` → runs inline and returns the result |
 | `GET /runs` · `GET /runs/{id}` · `GET /runs/{id}/decisions` | run history + per-agent audit |
 | `GET /signals` | filter by `ticker` / `run_id` |
 | `GET /reports` · `GET /reports/{id}` · `GET /reports/{id}/html` | last serves the rendered HTML file |
+| `GET /tasks/{task_id}` | poll an async Celery task by the id any `mode: "async"` response hands back (`/inputs/*`, `POST /runs`). `{status, ready, successful, result, error}` — `status` stuck at `PENDING` almost always means **no Celery worker is running** to consume the queue, not that anything failed |
 | `WS /ws/signals` | accepts a socket, echoes `{"type":"ack"}` — **placeholder**; real impl should subscribe to a Redis pub/sub channel the tasks publish to |
 
-Auth is enforced on **`/inputs/*`** (router-level dependency). The other
-resource routers (`watchlists`, `strategies`, `rules`, `runs`, `signals`,
-`reports`) are still open — add `dependencies=[Depends(get_current_user)]` to
-each `include_router` in `app/api/v1/router.py`, or `user: CurrentUser` per
-route, to lock them down.
+Auth is enforced on **`/inputs/*`** and **`/tasks/*`** (router-level
+dependency in `app/api/v1/router.py`). `/health` and `/auth/*` are open; the
+other resource routers (`watchlists`, `strategies`, `rules`, `runs`, `signals`,
+`reports`) are still unauthenticated — add `dependencies=[Depends(get_current_user)]`
+to their `include_router` calls, or `user: CurrentUser` per route, to lock
+them down (see §17).
 
 ---
 
@@ -601,7 +599,7 @@ token refresh (token just expires → re-login). See WORKFLOW §Frontend.
 
 ## 16. Tests
 
-`pytest -q` → **73 passed, 1 skipped** (the skip is `test_agents_graph.py` when
+`pytest -q` → **77 passed, 1 skipped** (the skip is `test_agents_graph.py` when
 `langgraph` isn't installed).
 
 - `tests/conftest.py` — `ohlcv` fixture: 250 deterministic synthetic sessions.
@@ -639,6 +637,6 @@ test, no frontend tests.
 | `main.py::/ws/signals` | echo placeholder — wire to Redis pub/sub |
 | signal engine | `cooldown_minutes` not enforced; no positions/PNL model |
 | notifications | WhatsApp + Telegram channels |
-| API routers | auth enforced on `/inputs/*` only — `watchlists`/`strategies`/`rules`/`runs`/`signals`/`reports` still open |
+| API routers | auth enforced on `/inputs/*` and `/tasks/*` only — `watchlists`/`strategies`/`rules`/`runs`/`signals`/`reports` still open |
 | frontend | sign-in + Inputs console only — no watchlist/strategy/report screens, no realtime, no token refresh |
 | observability | no metrics/tracing (logging = console + rotating `logs/app.log` + `logs/errors.log`; no structured/JSON logs, no request-id) |

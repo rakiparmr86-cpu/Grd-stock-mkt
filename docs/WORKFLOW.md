@@ -38,7 +38,7 @@ python scripts/seed_data.py
 #    or make your own: python scripts/create_user.py you@example.com 'a-password' --superuser
 
 # 6. sanity check
-pytest -q            # expect: 73 passed, 1 skipped (74 with langgraph installed)
+pytest -q            # expect: 77 passed, 1 skipped (78 with langgraph installed)
 ```
 
 Frontend (optional, separate shell):
@@ -353,6 +353,7 @@ Run through this **every time** you finish a feature or fix:
 | a 500 / a task failed and you want the traceback | `tail -f logs/errors.log` — the API and every Celery worker write unhandled exceptions there (full traceback). `logs/app.log` has the INFO stream too. |
 | VS Code **F5 → traceback in `runpy` / `ModuleNotFoundError`** | you can't run a single module (`app/api/v1/*.py` use package imports and have no `__main__`), and the `py` launcher may default to a Python without the deps. Fix: `Python: Select Interpreter` → `.venv`, then F5 picks `.vscode/launch.json` → **"API: uvicorn (reload)"** which runs `app.main:app` from the project root. |
 | breakpoints in route handlers don't hit | use the **"API: uvicorn (no reload)"** launch config — the `--reload` child process isn't the one the debugger attached to. |
+| a `mode: "async"` response never produces a result | poll `GET /api/v1/tasks/{task_id}`. `status` stuck at `PENDING` almost always means **no Celery worker is running** — start one (`make worker` / `celery -A app.workers.celery_app worker -l info --pool=solo`); it'll consume anything already queued in Redis. A task consumed by a worker you then killed mid-run is gone for good (Celery acks on delivery, not completion) — just resubmit. |
 
 ---
 
@@ -360,6 +361,17 @@ Run through this **every time** you finish a feature or fix:
 
 Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)`.
 
+- 2026-09-11 — api: added `GET /api/v1/tasks/{task_id}` — poll status/result
+  for any Celery task a `mode: "async"` response handed back
+  (`app/api/v1/tasks.py`, `AsyncResult`; auth-required, same as `/inputs`).
+  There was previously **no way to check** whether an async task was ever
+  picked up — found because a `/inputs/crawl` task sat `PENDING` forever with
+  no worker running to consume it, and there was nothing to confirm that
+  diagnosis with. Also fixed a real markdown bug in `TECHNICAL.md` §8 (a
+  paragraph had split the API table into two, with the auth note duplicated).
+  Tests +4 (`test_tasks_api.py`, fake `AsyncResult`). Verified live: submitted
+  a real crawl with a worker running, polled the task through
+  `PENDING → SUCCESS` with its actual result. `pytest -q` → 77 passed, 1 skipped.
 - 2026-09-11 — rag: fixed a **silent** bug — `QdrantStore.search()` called
   `QdrantClient.search()`, removed in qdrant-client releases newer than the
   `>=1.9` floor; since `rag_research_node` treats any retrieval exception as
