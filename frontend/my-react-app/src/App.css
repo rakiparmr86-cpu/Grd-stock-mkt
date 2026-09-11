@@ -247,11 +247,57 @@ td {
 td code {
   white-space: pre-wrap;
 }
+.task-status {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.task-row code {
+  color: var(--muted);
+}
 .muted {
   color: var(--muted);
 }
 .err-text {
   color: var(--err-fg);
+}
+.ok-text {
+  color: var(--ok-fg);
+}
+
+.page-tabs {
+  max-width: 280px;
+  margin-bottom: 18px;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+tr.clickable:hover {
+  background: var(--bg);
+}
+tr.selected {
+  background: var(--bg);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ghost-link {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12px;
+  text-decoration: none;
+}
+.ghost-link:hover {
+  text-decoration: underline;
+}
+
+.card.wide h3 {
+  font-size: 13px;
+  margin: 18px 0 4px;
+  color: var(--muted);
 }
 
 footer {

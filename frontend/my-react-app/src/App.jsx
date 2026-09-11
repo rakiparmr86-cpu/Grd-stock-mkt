@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
+import Analysis from './Analysis'
 import AuthForm from './AuthForm'
 import { API_BASE, AuthError, api, getToken, logout, me } from './api'
 
@@ -12,6 +13,88 @@ function Result({ value }) {
   )
 }
 
+// Poll interval and give-up threshold for GET /tasks/{task_id}. If a task is
+// still PENDING after this many attempts, a worker is almost certainly not
+// running to consume the queue — see app/api/v1/tasks.py.
+const TASK_POLL_MS = 1500
+const TASK_POLL_MAX_ATTEMPTS = 40
+
+// Uploading a file only *queues* the ingest — the response's task_id says
+// nothing about whether that ingest actually ran. Poll it to completion so
+// the card shows what really happened instead of the enqueue receipt.
+function useTaskPolling(onExpire) {
+  const [statuses, setStatuses] = useState({})
+  const timers = useRef({})
+  const attempts = useRef({})
+
+  useEffect(() => () => {
+    Object.values(timers.current).forEach(clearTimeout)
+  }, [])
+
+  const poll = useCallback(async function pollTask(taskId) {
+    attempts.current[taskId] = (attempts.current[taskId] || 0) + 1
+    try {
+      const status = await api(`/tasks/${taskId}`)
+      setStatuses((prev) => ({ ...prev, [taskId]: status }))
+      if (!status.ready) {
+        if (attempts.current[taskId] >= TASK_POLL_MAX_ATTEMPTS) {
+          setStatuses((prev) => ({
+            ...prev,
+            [taskId]: {
+              ...status,
+              timedOut: true,
+              hint: 'still pending after 60s — a Celery worker is probably not running',
+            },
+          }))
+          return
+        }
+        timers.current[taskId] = setTimeout(() => pollTask(taskId), TASK_POLL_MS)
+      }
+    } catch (err) {
+      if (err instanceof AuthError) return onExpire()
+      setStatuses((prev) => ({
+        ...prev,
+        [taskId]: { task_id: taskId, status: 'ERROR', ready: true, error: String(err.message || err) },
+      }))
+    }
+  }, [onExpire])
+
+  const track = useCallback((taskId) => {
+    if (!taskId) return
+    poll(taskId)
+  }, [poll])
+
+  const reset = useCallback(() => {
+    Object.values(timers.current).forEach(clearTimeout)
+    timers.current = {}
+    attempts.current = {}
+    setStatuses({})
+  }, [])
+
+  return { statuses, track, reset }
+}
+
+function TaskStatusRow({ label, status }) {
+  if (!status) {
+    return (
+      <div className="task-row">
+        <code>{label}</code>: <span className="muted">queued — checking…</span>
+      </div>
+    )
+  }
+  const failed = status.status === 'ERROR' || status.successful === false
+  return (
+    <div className="task-row">
+      <code>{label}</code>:{' '}
+      <span className={failed ? 'err-text' : status.ready ? 'ok-text' : 'muted'}>
+        {status.status}
+        {failed && status.error ? ` — ${status.error}` : ''}
+        {status.timedOut ? ` (${status.hint})` : ''}
+      </span>
+    </div>
+  )
+}
+
 function UploadCard({ onExpire }) {
   const [files, setFiles] = useState(null)
   const [mode, setMode] = useState('ingest_once')
@@ -20,12 +103,14 @@ function UploadCard({ onExpire }) {
   const [docType, setDocType] = useState('')
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
+  const { statuses, track, reset } = useTaskPolling(onExpire)
 
   const submit = async (e) => {
     e.preventDefault()
     if (!files?.length) return
     setBusy(true)
     setOut(null)
+    reset()
     try {
       const fd = new FormData()
       for (const f of files) fd.append('files', f)
@@ -33,7 +118,11 @@ function UploadCard({ onExpire }) {
       fd.append('excel_mode', excelMode)
       fd.append('row_kind', rowKind)
       if (docType) fd.append('doc_type', docType)
-      setOut(await api('/inputs/upload', { method: 'POST', body: fd }))
+      const res = await api('/inputs/upload', { method: 'POST', body: fd })
+      setOut(res)
+      for (const item of res.items || []) {
+        if (item.task_id) track(item.task_id)
+      }
     } catch (err) {
       if (err instanceof AuthError) return onExpire()
       setOut({ error: String(err.message || err) })
@@ -41,6 +130,8 @@ function UploadCard({ onExpire }) {
       setBusy(false)
     }
   }
+
+  const queuedItems = (out?.items || []).filter((item) => item.task_id)
 
   return (
     <form className="card" onSubmit={submit}>
@@ -86,6 +177,13 @@ function UploadCard({ onExpire }) {
       </div>
       <button disabled={busy || !files?.length}>{busy ? 'Uploading…' : 'Upload'}</button>
       <Result value={out} />
+      {queuedItems.length > 0 && (
+        <div className="task-status">
+          {queuedItems.map((item) => (
+            <TaskStatusRow key={item.task_id} label={item.filename} status={statuses[item.task_id]} />
+          ))}
+        </div>
+      )}
     </form>
   )
 }
@@ -193,9 +291,36 @@ function CrawlCard({ onExpire }) {
   )
 }
 
+// Cell shown in the "Last status" column while a Run click's task is still
+// in flight for that row — swaps back to the source's own last_status once
+// load() re-fetches after the task completes.
+function RunStatusCell({ row, taskStatus }) {
+  if (!taskStatus) {
+    return (
+      <span className={row.last_status === 'error' ? 'err-text' : ''}>
+        {row.last_status || '—'}
+      </span>
+    )
+  }
+  const failed = taskStatus.status === 'ERROR' || taskStatus.successful === false
+  if (failed) {
+    return <span className="err-text">failed{taskStatus.error ? ` — ${taskStatus.error}` : ''}</span>
+  }
+  if (taskStatus.timedOut) {
+    return <span className="err-text">{taskStatus.hint}</span>
+  }
+  if (!taskStatus.ready) {
+    return <span className="muted">{taskStatus.status.toLowerCase()}…</span>
+  }
+  return <span className="ok-text">done — refreshing…</span>
+}
+
 function Sources({ onExpire }) {
   const [rows, setRows] = useState([])
   const [err, setErr] = useState(null)
+  // sourceId -> task_id, for runs currently in flight from this table
+  const [runningTasks, setRunningTasks] = useState({})
+  const { statuses, track, reset: resetTasks } = useTaskPolling(onExpire)
 
   const load = useCallback(async () => {
     try {
@@ -211,21 +336,47 @@ function Sources({ onExpire }) {
     load()
   }, [load])
 
+  // once a tracked task finishes, drop it and pull the row's fresh last_status
+  useEffect(() => {
+    const done = Object.entries(runningTasks).filter(
+      ([, taskId]) => statuses[taskId]?.ready || statuses[taskId]?.timedOut,
+    )
+    if (done.length === 0) return
+    setRunningTasks((prev) => {
+      const next = { ...prev }
+      for (const [sourceId] of done) delete next[sourceId]
+      return next
+    })
+    load()
+  }, [statuses, runningTasks, load])
+
   const run = async (id) => {
+    setErr(null)
     try {
-      await api(`/inputs/${id}/run`, { method: 'POST' })
-      setTimeout(load, 800)
+      const res = await api(`/inputs/${id}/run`, { method: 'POST' })
+      if (res.task_id) {
+        setRunningTasks((prev) => ({ ...prev, [id]: res.task_id }))
+        track(res.task_id)
+      } else {
+        setTimeout(load, 300)
+      }
     } catch (e) {
       if (e instanceof AuthError) return onExpire()
       setErr(String(e.message || e))
     }
   }
 
+  const refresh = () => {
+    resetTasks()
+    setRunningTasks({})
+    load()
+  }
+
   return (
     <div className="card wide">
       <div className="card-head">
         <h2>Saved input sources</h2>
-        <button type="button" className="ghost" onClick={load}>
+        <button type="button" className="ghost" onClick={refresh}>
           Refresh
         </button>
       </div>
@@ -251,27 +402,35 @@ function Sources({ onExpire }) {
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>{r.name}</td>
-                <td>
-                  <code>{r.connector}</code>
-                </td>
-                <td>{r.is_active ? 'yes' : 'no'}</td>
-                <td>{r.schedule_cron || '—'}</td>
-                <td className={r.last_status === 'error' ? 'err-text' : ''}>
-                  {r.last_status || '—'}
-                </td>
-                <td>
-                  <code>{r.last_stats ? JSON.stringify(r.last_stats) : '—'}</code>
-                </td>
-                <td>
-                  <button type="button" className="ghost" onClick={() => run(r.id)}>
-                    Run
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const taskId = runningTasks[r.id]
+              return (
+                <tr key={r.id}>
+                  <td>{r.name}</td>
+                  <td>
+                    <code>{r.connector}</code>
+                  </td>
+                  <td>{r.is_active ? 'yes' : 'no'}</td>
+                  <td>{r.schedule_cron || '—'}</td>
+                  <td>
+                    <RunStatusCell row={r} taskStatus={taskId ? statuses[taskId] : null} />
+                  </td>
+                  <td>
+                    <code>{r.last_stats ? JSON.stringify(r.last_stats) : '—'}</code>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!!taskId}
+                      onClick={() => run(r.id)}
+                    >
+                      {taskId ? 'Running…' : 'Run'}
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -280,10 +439,12 @@ function Sources({ onExpire }) {
 }
 
 function Console({ user, onSignOut }) {
+  const [page, setPage] = useState('analysis')
+
   return (
     <main className="app">
       <header>
-        <h1>grd-stk-mkt — inputs</h1>
+        <h1>grd-stk-mkt</h1>
         <span className="api">{API_BASE}</span>
         <span className="spacer" />
         <span className="who">{user?.email}</span>
@@ -291,14 +452,30 @@ function Console({ user, onSignOut }) {
           Sign out
         </button>
       </header>
-      <div className="grid">
-        <UploadCard onExpire={onSignOut} />
-        <CrawlCard onExpire={onSignOut} />
+      <div className="tabs page-tabs">
+        <button type="button" className={page === 'analysis' ? 'on' : ''} onClick={() => setPage('analysis')}>
+          Analysis
+        </button>
+        <button type="button" className={page === 'inputs' ? 'on' : ''} onClick={() => setPage('inputs')}>
+          Inputs
+        </button>
       </div>
-      <Sources onExpire={onSignOut} />
+
+      {page === 'analysis' && <Analysis onExpire={onSignOut} />}
+
+      {page === 'inputs' && (
+        <>
+          <div className="grid">
+            <UploadCard onExpire={onSignOut} />
+            <CrawlCard onExpire={onSignOut} />
+          </div>
+          <Sources onExpire={onSignOut} />
+        </>
+      )}
+
       <footer>
         Scheduled runs still come from Celery Beat + a worker. This page adds
-        sign-in + upload / crawl-now on top.
+        sign-in, upload / crawl-now, and an analysis results viewer on top.
       </footer>
     </main>
   )

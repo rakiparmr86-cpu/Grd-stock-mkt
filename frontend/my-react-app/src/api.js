@@ -99,3 +99,26 @@ export function me() {
 export function logout() {
   clearToken()
 }
+
+// ── analysis calls ───────────────────────────────────────────────
+export function listRuns(limit = 50) {
+  return api(`/runs?limit=${limit}`)
+}
+export function getRunDecisions(runId) {
+  return api(`/runs/${runId}/decisions`)
+}
+export function triggerRun(payload) {
+  return api('/runs', { method: 'POST', body: JSON.stringify(payload) })
+}
+export function listSignals(runId) {
+  return api(`/signals?run_id=${runId}&limit=200`)
+}
+export function listReports(runId) {
+  return api(`/reports?run_id=${runId}&limit=50`)
+}
+export function reportHtmlUrl(reportId) {
+  return `${API_BASE}/reports/${reportId}/html`
+}
+export function getTask(taskId) {
+  return api(`/tasks/${taskId}`)
+}
