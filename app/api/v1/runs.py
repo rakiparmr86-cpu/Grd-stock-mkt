@@ -60,7 +60,9 @@ def trigger_run(payload: RunRequest) -> dict:
         result = analyze_ticker(payload.ticker, run_id=run_id,
                                 strategy_id=payload.strategy_id,
                                 force_agents=payload.force_agents)
-        close_run(run_id, "done")
+        close_run(run_id, "done", extra_context={
+            "outcome": result.get("status"), "reason": result.get("reason"),
+        })
     except Exception as exc:  # noqa: BLE001
         close_run(run_id, "error", str(exc))
         raise HTTPException(500, str(exc)) from exc

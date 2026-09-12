@@ -9,6 +9,16 @@ from app.services.calculations.indicators import (
     volatility,
     volume_ratio,
 )
+from app.services.calculations.statistics import (
+    confidence_interval,
+    correlation_matrix,
+    descriptive_stats,
+    forecast,
+    full_report,
+    growth_trend,
+    regression,
+    volatility_downside,
+)
 
 __all__ = [
     "CalculationEngine",
@@ -21,4 +31,12 @@ __all__ = [
     "volume_ratio",
     "returns",
     "volatility",
+    "descriptive_stats",
+    "growth_trend",
+    "correlation_matrix",
+    "regression",
+    "forecast",
+    "volatility_downside",
+    "confidence_interval",
+    "full_report",
 ]

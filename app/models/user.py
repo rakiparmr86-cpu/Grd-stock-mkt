@@ -11,6 +11,9 @@ class User(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    # optional simpler login handle — not validated as an email, so it can be
+    # a short name like "demo" rather than needing a real deliverable address
+    username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     full_name: Mapped[str | None] = mapped_column(String(200))
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

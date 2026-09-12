@@ -29,6 +29,21 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "API: uvicorn (LAN — for phone testing via grd_mb)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app", "--reload", "--reload-dir", "app",
+        "--host", "0.0.0.0", "--port", "8000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "jinja": true,
+      "justMyCode": false,
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Celery worker",
       "type": "debugpy",
       "request": "launch",

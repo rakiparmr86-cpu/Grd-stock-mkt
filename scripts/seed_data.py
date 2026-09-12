@@ -32,6 +32,8 @@ DEMO_EMAIL = "demo@grd-stk-mkt.dev"
 # user with a 500, even though the row inserts fine (this script bypasses
 # UserCreate's input validation).
 DEMO_PASSWORD = "1223456"
+# a shorter alternative login — not an email, so no format restrictions apply
+DEMO_USERNAME = "demo@grd"
 
 TICKERS = ["RELIANCE", "TCS", "INFY"]
 MARKET_DIR = Path("./data/market")
@@ -125,11 +127,15 @@ def main() -> None:
             select(User).where(User.email == DEMO_EMAIL)
         ).scalar_one_or_none()
         if user is None:
-            db.add(User(email=DEMO_EMAIL, full_name="Demo User",
+            db.add(User(email=DEMO_EMAIL, username=DEMO_USERNAME, full_name="Demo User",
                         hashed_password=hash_password(DEMO_PASSWORD), is_superuser=True))
-            print(f"  demo user: {DEMO_EMAIL} / {DEMO_PASSWORD}")
+            print(f"  demo user: {DEMO_EMAIL} (or {DEMO_USERNAME}) / {DEMO_PASSWORD}")
         else:
-            print(f"  demo user already exists: {DEMO_EMAIL}")
+            if user.username != DEMO_USERNAME:
+                user.username = DEMO_USERNAME
+                print(f"  demo user already exists — backfilled username: {DEMO_USERNAME}")
+            else:
+                print(f"  demo user already exists: {DEMO_EMAIL} (or {DEMO_USERNAME})")
 
     with session_scope() as db:
         if db.execute(select(Strategy).where(Strategy.name == "Mean reversion + trend")
@@ -180,7 +186,7 @@ def main() -> None:
     print("  seeded watchlist + strategy + rules + input sources")
     print("\nNext:")
     print("  uvicorn app.main:app --reload")
-    print(f"  # log in as {DEMO_EMAIL} / {DEMO_PASSWORD} (frontend, or:)")
+    print(f"  # log in as {DEMO_EMAIL} (or {DEMO_USERNAME}) / {DEMO_PASSWORD} (frontend, or:)")
     print("  curl -s -X POST localhost:8000/api/v1/auth/login \\")
     print(f"       -d 'username={DEMO_EMAIL}&password={DEMO_PASSWORD}'")
     print("  # then send the token as: -H 'Authorization: Bearer <access_token>'")

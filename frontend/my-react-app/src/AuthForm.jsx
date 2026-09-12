@@ -62,9 +62,13 @@ export default function AuthForm({ onAuthed }) {
           </label>
         )}
         <label>
-          Email
+          {tab === 'register' ? 'Email' : 'Email or username'}
           <input
-            type="email"
+            // registering always needs a real email (UserCreate.email is
+            // validated); signing in also accepts a plain username (e.g.
+            // "demo@grd"), which type="email" would otherwise block via the
+            // browser's own format check
+            type={tab === 'register' ? 'email' : 'text'}
             required
             autoComplete="username"
             value={email}

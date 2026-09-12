@@ -41,6 +41,7 @@ function RunTrigger({ onQueued, onExpire }) {
   const [ticker, setTicker] = useState('')
   const [strategyId, setStrategyId] = useState('')
   const [async_, setAsync] = useState(true)
+  const [forceAgents, setForceAgents] = useState(false)
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
 
@@ -54,6 +55,7 @@ function RunTrigger({ onQueued, onExpire }) {
         ticker: ticker.trim().toUpperCase(),
         strategy_id: strategyId.trim() ? Number(strategyId) : null,
         async_,
+        force_agents: forceAgents,
       }
       const res = await triggerRun(payload)
       setOut(res)
@@ -69,7 +71,13 @@ function RunTrigger({ onQueued, onExpire }) {
   return (
     <form className="card" onSubmit={submit}>
       <h2>Run analysis</h2>
-      <p className="hint">Kicks off the agent pipeline for one ticker.</p>
+      <p className="hint">
+        Kicks off the agent pipeline for one ticker. By default, agents only run — and a report
+        only gets written — when one of the active rules actually fires for the latest data; a
+        run with no matching rule is expected, not an error, and will show up with empty
+        reports/signals/decisions below. Check "always run agents" to force a full report
+        regardless.
+      </p>
       <div className="row">
         <label>
           Ticker
@@ -93,6 +101,14 @@ function RunTrigger({ onQueued, onExpire }) {
         <label className="check">
           <input type="checkbox" checked={async_} onChange={(e) => setAsync(e.target.checked)} />
           async (Celery)
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={forceAgents}
+            onChange={(e) => setForceAgents(e.target.checked)}
+          />
+          always run agents (even with no matching rule)
         </label>
       </div>
       <button disabled={busy || !ticker.trim()}>{busy ? 'Starting…' : 'Run'}</button>
@@ -175,6 +191,17 @@ function RunDetail({ run, onExpire }) {
 
   if (!run) return null
 
+  const outcome = run.context?.outcome
+  const reason = run.context?.reason
+  const outcomeNote =
+    outcome === 'no_signal'
+      ? 'No active rule matched the latest data for this ticker — the agents did not run and nothing was persisted. This is expected behavior, not an error. Re-run with "always run agents" checked to force a full report anyway.'
+      : outcome === 'skipped' && reason === 'insufficient_data'
+        ? 'Skipped: not enough OHLCV history for this ticker (fewer than 30 bars) — ingest more price data before analyzing it.'
+        : outcome === 'skipped'
+          ? `Skipped: ${reason || 'unknown reason'}.`
+          : null
+
   return (
     <div className="card wide">
       <div className="card-head">
@@ -187,6 +214,7 @@ function RunDetail({ run, onExpire }) {
         trigger: {run.trigger} · started {fmtDate(run.started_at)} · finished{' '}
         {fmtDate(run.finished_at)}
       </p>
+      {outcomeNote && <p className="hint outcome-note">{outcomeNote}</p>}
       {run.error && <pre className="result err">{run.error}</pre>}
       {err && <pre className="result err">{err}</pre>}
 

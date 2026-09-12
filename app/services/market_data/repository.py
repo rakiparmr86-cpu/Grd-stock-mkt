@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import session_scope
 from app.core.logging import get_logger
-from app.models.market import Fundamental, IndicatorPoint, OHLCV
+from app.models.market import OHLCV, Fundamental, IndicatorPoint
 
 log = get_logger(__name__)
 
@@ -71,6 +71,32 @@ def upsert_fundamentals(records: list[dict]) -> int:
         db.execute(stmt)
     log.info("upserted %d fundamental rows", len(rows))
     return len(rows)
+
+
+def load_fundamentals_frame(ticker: str) -> pd.DataFrame:
+    """Every ``Fundamental`` row for ``ticker``, one row per period, sorted
+    chronologically (by ``reported_at`` where set, else by the period label,
+    which sorts correctly for "YYYY-MM"-style labels but not for arbitrary
+    strings like "Q1FY25" — pass a matching ``period`` scheme if you need
+    that ordering guaranteed). Index is the period label; columns are the
+    typed fields (``revenue``/``net_income``/``eps``/``pe``/``debt_to_equity``)
+    — the free-form ``metrics`` JSONB is not flattened in.
+    """
+    with session_scope() as db:
+        stmt = (
+            select(Fundamental)
+            .where(Fundamental.ticker == ticker.upper())
+            .order_by(Fundamental.reported_at.asc().nullslast(), Fundamental.period.asc())
+        )
+        rows = list(db.execute(stmt).scalars())
+    cols = ["revenue", "net_income", "eps", "pe", "debt_to_equity"]
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    data = [
+        {"period": r.period, **{c: getattr(r, c) for c in cols}}
+        for r in rows
+    ]
+    return pd.DataFrame(data).set_index("period")
 
 
 def load_ohlcv_frame(ticker: str, *, interval: str = "1d", limit: int = 750) -> pd.DataFrame:

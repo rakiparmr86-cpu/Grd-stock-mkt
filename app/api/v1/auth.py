@@ -15,8 +15,11 @@ router = APIRouter()
 def register(payload: UserCreate, db: DbSession, users: UserRepo) -> User:
     if users.by_email(payload.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
+    if payload.username and users.by_username(payload.username):
+        raise HTTPException(status.HTTP_409_CONFLICT, "username already taken")
     user = users.add(User(
         email=payload.email,
+        username=payload.username,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
     ))
@@ -27,7 +30,8 @@ def register(payload: UserCreate, db: DbSession, users: UserRepo) -> User:
 
 @router.post("/login", response_model=Token)
 def login(users: UserRepo, form: OAuth2PasswordRequestForm = Depends()) -> Token:  # noqa: B008
-    user = users.by_email(form.username)
+    # form.username is really "login identifier" here — an email or a username
+    user = users.by_login_identifier(form.username)
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad credentials")
     return Token(access_token=create_access_token(user.id))

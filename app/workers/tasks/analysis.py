@@ -24,7 +24,9 @@ def analyze_ticker_task(self, ticker: str, strategy_id: int | None = None,
         result = analyze_ticker(ticker, run_id=run_id, strategy_id=strategy_id,
                                 force_agents=force_agents)
         if own_run:
-            close_run(run_id, "done")
+            close_run(run_id, "done", extra_context={
+                "outcome": result.get("status"), "reason": result.get("reason"),
+            })
     except Exception as exc:  # noqa: BLE001
         log.exception("analyze_ticker_task failed for %s", ticker)
         if own_run:
@@ -56,7 +58,9 @@ def scan_watchlist(watchlist_id: int, strategy_id: int | None = None,
                 if notify_to and res.get("report"):
                     send_report_alert.delay(run_id=run_id, ticker=t,
                                             recipient=notify_to, report=res["report"])
-        close_run(run_id, "done")
+        close_run(run_id, "done", extra_context={
+            "tickers_scanned": len(tickers), "tickers_with_signals": fired,
+        })
     except Exception as exc:  # noqa: BLE001
         log.exception("scan_watchlist failed")
         close_run(run_id, "error", str(exc))

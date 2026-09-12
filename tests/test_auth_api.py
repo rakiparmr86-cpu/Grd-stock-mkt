@@ -99,3 +99,44 @@ def test_demo_credentials_survive_register_login_me(client):
     r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text  # would be 500 for a .local/.test/.invalid email
     assert r.json()["email"] == DEMO_EMAIL
+
+
+def test_register_with_username_then_login_by_username(client):
+    r = client.post(
+        "/api/v1/auth/register",
+        json={"email": "u1@example.com", "password": PW, "username": "demo@grd"},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["username"] == "demo@grd"
+
+    # "demo@grd" is not a valid email (no dot in the domain) — this proves
+    # login accepts it as a plain username, not by re-validating it as email
+    r = client.post("/api/v1/auth/login", data={"username": "demo@grd", "password": PW})
+    assert r.status_code == 200, r.text
+
+    me = client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {r.json()['access_token']}"}
+    )
+    assert me.status_code == 200, me.text
+    assert me.json()["email"] == "u1@example.com"
+
+
+def test_login_by_email_still_works_when_username_set(client):
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "u2@example.com", "password": PW, "username": "u2"},
+    )
+    r = client.post("/api/v1/auth/login", data={"username": "u2@example.com", "password": PW})
+    assert r.status_code == 200, r.text
+
+
+def test_duplicate_username_409(client):
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "u3@example.com", "password": PW, "username": "sameuser"},
+    )
+    r = client.post(
+        "/api/v1/auth/register",
+        json={"email": "u4@example.com", "password": PW, "username": "sameuser"},
+    )
+    assert r.status_code == 409

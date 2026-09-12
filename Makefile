@@ -1,4 +1,4 @@
-.PHONY: help install up down migrate seed api worker beat test lint fmt \
+.PHONY: help install up down migrate seed api api-lan worker beat test lint fmt \
         db-new db-up db-down db-redo db-current db-history db-heads db-check db-dump
 
 help:
@@ -18,6 +18,9 @@ seed:     ## load demo data (schema must be at head first)
 
 api:      ## run the API with reload (watches app/ only)
 	uvicorn app.main:app --reload --reload-dir app
+
+api-lan:  ## run the API bound to all interfaces, for phone testing via grd_mb
+	uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0
 
 worker:   ## run a celery worker
 	celery -A app.workers.celery_app worker -l info

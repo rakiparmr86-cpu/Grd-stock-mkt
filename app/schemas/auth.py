@@ -9,11 +9,13 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     full_name: str | None = None
+    username: str | None = None
 
 
 class UserOut(ORMModel):
     id: int
     email: EmailStr
+    username: str | None = None
     full_name: str | None = None
     is_active: bool
     is_superuser: bool

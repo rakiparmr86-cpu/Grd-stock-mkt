@@ -26,7 +26,13 @@ class AnalysisRunRepository(BaseRepository[AnalysisRun]):
         )
         return self.add(run)
 
-    def close(self, run: AnalysisRun, *, status: str = "done", error: str | None = None) -> None:
+    def close(
+        self, run: AnalysisRun, *, status: str = "done", error: str | None = None,
+        extra_context: dict[str, Any] | None = None,
+    ) -> None:
         run.status = status
         run.error = error
         run.finished_at = datetime.now(timezone.utc)
+        if extra_context:
+            # merge, don't replace — open_run already put e.g. {"ticker": ...} here
+            run.context = {**(run.context or {}), **extra_context}

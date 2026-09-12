@@ -300,6 +300,14 @@ tr.selected {
   color: var(--muted);
 }
 
+.outcome-note {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin: 8px 0 0;
+}
+
 footer {
   margin-top: 26px;
   color: var(--muted);

@@ -7,6 +7,13 @@ Config
      "sheet": "RELIANCE", "ticker": "RELIANCE"}     # sheet/ticker optional
     {"path": "fundamentals.xlsx", "mode": "rows", "row_kind": "fundamental"}
 
+    # a Screener.in-style statement sheet (row-per-metric, column-per-period)
+    # is auto-detected and transposed into one Fundamental row per period —
+    # 'ticker' is required for this shape since the sheet itself doesn't
+    # carry a clean ticker code:
+    {"path": "Profit & Loss export.xlsx", "mode": "rows", "row_kind": "fundamental",
+     "sheet": "Profit & Loss", "ticker": "RELIANCE"}
+
     # docs → Qdrant (each sheet becomes a text table)
     {"path": "notes.xlsx", "mode": "docs", "doc_type": "research_note", "ticker": "RELIANCE"}
 """
@@ -26,9 +33,45 @@ from app.services.inputs.base import (
     DocItem,
     InputConnector,
 )
+from app.services.inputs.screener_excel import transpose_statement_sheet
 from app.services.market_data.normalization import normalize_ohlcv
 
 log = get_logger(__name__)
+
+# Screener statement-sheet metric names -> Fundamental's typed columns.
+# Anything not in this map still comes through (folded into the JSONB
+# ``metrics`` column by upsert_fundamentals) — just not as a typed field.
+_SCREENER_METRIC_MAP = {
+    "sales": "revenue",
+    "net profit": "net_income",
+    "eps": "eps",
+    "price to earning": "pe",
+}
+
+
+def _screener_fundamental_records(path: Path, sheet: str, ticker: str | None) -> list[dict] | None:
+    """Try reading ``sheet`` as a Screener-style row-per-metric statement and
+    transposing it into one Fundamental record per period. Returns ``None``
+    (not an error) when the sheet doesn't have that shape, so the caller can
+    fall back to treating it as an already-tidy fundamentals table."""
+    if not ticker:
+        return None
+    raw = pd.read_excel(path, sheet_name=sheet, header=None)
+    try:
+        wide = transpose_statement_sheet(raw)
+    except ValueError:
+        return None
+
+    records = []
+    for period, row in wide.iterrows():
+        rec: dict[str, object] = {"ticker": ticker, "period": str(period)}
+        for metric, value in row.items():
+            if pd.isna(value):
+                continue
+            key = _SCREENER_METRIC_MAP.get(str(metric).strip().lower(), str(metric).strip().lower())
+            rec[key] = value
+        records.append(rec)
+    return records
 
 
 class ExcelConnector(InputConnector):
@@ -85,9 +128,11 @@ class ExcelConnector(InputConnector):
                 if not norm.empty:
                     yield ConnectorResult.of_rows(norm, "ohlcv", sheet=sheet)
             else:  # fundamental
-                recs = df.to_dict("records")
-                if ticker:
-                    for r in recs:
-                        r.setdefault("ticker", ticker)
+                recs = _screener_fundamental_records(path, sheet, ticker)
+                if recs is None:
+                    recs = df.to_dict("records")
+                    if ticker:
+                        for r in recs:
+                            r.setdefault("ticker", ticker)
                 yield ConnectorResult(kind=ConnectorKind.ROWS, row_kind="fundamental",
                                       rows=pd.DataFrame(recs), meta={"sheet": sheet})

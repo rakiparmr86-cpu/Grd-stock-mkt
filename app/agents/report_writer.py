@@ -83,6 +83,7 @@ def report_writer_node(state: AnalysisState) -> AnalysisState:
         "sections": sections,
         "indicators": {k: v for k, v in state.get("indicators", {}).items()
                        if v is not None},
+        "forecast": findings.get("fundamental_analyst", {}).get("forecast"),
         "chart_b64": chart_b64,
     }
     log.info("report_writer %s -> action=%s", ticker, action)

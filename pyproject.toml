@@ -28,6 +28,9 @@ dependencies = [
     # Data / calculations
     "pandas>=2.2",
     "numpy>=1.26",
+    "scipy>=1.13",
+    "statsmodels>=0.14",  # OLS w/ p-values, ETS / Holt-Winters, ARIMA/SARIMA
+    "scikit-learn>=1.4",  # Ridge / Lasso regularized regression
     "openpyxl>=3.1",
     "httpx>=0.27",
     # RAG / inputs

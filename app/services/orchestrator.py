@@ -147,9 +147,12 @@ def open_run(trigger: str, *, strategy_id=None, watchlist_id=None,
         return run.id
 
 
-def close_run(run_id: int, status: str = "done", error: str | None = None) -> None:
+def close_run(
+    run_id: int, status: str = "done", error: str | None = None,
+    extra_context: dict[str, Any] | None = None,
+) -> None:
     with session_scope() as db:
         runs = AnalysisRunRepository(db)
         run = runs.get(run_id)
         if run:
-            runs.close(run, status=status, error=error)
+            runs.close(run, status=status, error=error, extra_context=extra_context)
