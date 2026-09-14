@@ -119,6 +119,9 @@ export function listReports(runId) {
 export function reportHtmlUrl(reportId) {
   return `${API_BASE}/reports/${reportId}/html`
 }
+export function reportExcelUrl(reportId) {
+  return `${API_BASE}/reports/${reportId}/excel`
+}
 export function getTask(taskId) {
   return api(`/tasks/${taskId}`)
 }

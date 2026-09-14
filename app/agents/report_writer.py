@@ -84,6 +84,10 @@ def report_writer_node(state: AnalysisState) -> AnalysisState:
         "indicators": {k: v for k, v in state.get("indicators", {}).items()
                        if v is not None},
         "forecast": findings.get("fundamental_analyst", {}).get("forecast"),
+        # full calculation-engine output behind the forecast above — kept so
+        # the report can be exported to the same "GRD Calculation" Excel
+        # sheet as scripts/write_grd_calculation.py without recomputing it
+        "fundamentals_report": findings.get("fundamental_analyst", {}).get("fundamentals_report"),
         "chart_b64": chart_b64,
     }
     log.info("report_writer %s -> action=%s", ticker, action)

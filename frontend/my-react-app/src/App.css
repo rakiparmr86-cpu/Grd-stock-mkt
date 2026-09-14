@@ -293,6 +293,11 @@ tr.selected {
 .ghost-link:hover {
   text-decoration: underline;
 }
+.report-links {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+}
 
 .card.wide h3 {
   font-size: 13px;

@@ -77,6 +77,17 @@ def test_enough_history_adds_forecast(monkeypatch):
     rev = finding["forecast"]["revenue"]
     assert rev["cagr_pct"] > 0
     assert rev["trend_direction"] == "up"
+
+    # the full calculation-engine report (for Excel export) must be the same
+    # shape app.services.reports.excel_writeback expects — not just the
+    # flattened "forecast" summary used for on-screen bullets
+    report = finding["fundamentals_report"]
+    assert report is not None
+    assert set(report["metrics"]) == {"revenue", "net_income"}
+    assert "descriptive_stats" in report["metrics"]["revenue"]
+    assert "growth_trend" in report["metrics"]["revenue"]
+    assert report["regression"]["target"] == "net_income"
+    assert report["regression"]["features"] == ["revenue"]
     ci = rev["confidence_interval_95"]
     assert ci["low"] <= rev["forecast_next"] <= ci["high"]
     assert any("revenue" in b and "CAGR" in b for b in finding["bullets"])

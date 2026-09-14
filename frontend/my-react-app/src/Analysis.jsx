@@ -6,6 +6,7 @@ import {
   listReports,
   listRuns,
   listSignals,
+  reportExcelUrl,
   reportHtmlUrl,
   triggerRun,
 } from './api'
@@ -243,11 +244,18 @@ function RunDetail({ run, onExpire }) {
                 <td>{r.summary || '—'}</td>
                 <td>{fmtDate(r.created_at)}</td>
                 <td>
-                  {r.html_path && (
-                    <a className="ghost-link" href={reportHtmlUrl(r.id)} target="_blank" rel="noreferrer">
-                      View HTML
-                    </a>
-                  )}
+                  <div className="report-links">
+                    {r.html_path && (
+                      <a className="ghost-link" href={reportHtmlUrl(r.id)} target="_blank" rel="noreferrer">
+                        View HTML
+                      </a>
+                    )}
+                    {r.payload?.fundamentals_report && (
+                      <a className="ghost-link" href={reportExcelUrl(r.id)}>
+                        Download Excel
+                      </a>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

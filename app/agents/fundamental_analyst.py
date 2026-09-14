@@ -21,8 +21,7 @@ from app.agents.state import AnalysisState
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.models.market import Fundamental
-from app.services.calculations.statistics import forecast as compute_forecast
-from app.services.calculations.statistics import growth_trend
+from app.services.calculations.statistics import full_report
 from app.services.market_data.repository import load_fundamentals_frame
 
 log = get_logger(__name__)
@@ -72,33 +71,49 @@ def _score(f: Fundamental) -> tuple[float, list[str]]:
     return max(-1.0, min(1.0, score)), notes
 
 
-def _history_forecast(ticker: str) -> dict | None:
-    """Data-driven trend + one-period-ahead forecast for revenue/net income,
-    using every ``Fundamental`` row on file for this ticker — independent of
-    (and a cross-check on) the single-period valuation score above. Returns
-    ``None`` when there isn't enough history (< 4 periods with real values)
-    to forecast responsibly, rather than a forecast built on too little data.
+def _history_full_report(ticker: str) -> dict | None:
+    """The calculation engine's full report (descriptive stats, growth/CAGR,
+    forecast, and — when both are available — a revenue-vs-net-income
+    regression) over every ``Fundamental`` row on file for this ticker.
+
+    This is the same structure ``app.services.reports.excel_writeback``
+    consumes for the "GRD Calculation" sheet, so a run's report can be
+    exported to Excel later without recomputing anything. Returns ``None``
+    when there isn't enough history (< 4 periods with real values) on either
+    metric to forecast responsibly, rather than a forecast built on too
+    little data.
     """
     frame = load_fundamentals_frame(ticker)
-    result: dict[str, dict] = {}
-    for metric in _TREND_METRICS:
-        if metric not in frame.columns:
-            continue
-        series = frame[metric].dropna()
-        if len(series) < _MIN_PERIODS_FOR_TREND:
-            continue
-        trend = growth_trend(series)
-        fc = compute_forecast(series, periods_ahead=1)
+    cols = [m for m in _TREND_METRICS
+            if m in frame.columns and frame[m].dropna().shape[0] >= _MIN_PERIODS_FOR_TREND]
+    if not cols:
+        return None
+    target, features = (None, None)
+    if "net_income" in cols and "revenue" in cols:
+        target, features = "net_income", ["revenue"]
+    return full_report(frame[cols], target=target, features=features,
+                       periods_per_year=1, forecast_periods=1)
+
+
+def _forecast_summary(report: dict) -> dict | None:
+    """Flatten ``_history_full_report``'s per-metric sections into the small
+    {metric: {cagr_pct, trend_direction, forecast_next, confidence_interval_95}}
+    shape the web/mobile report views render — skip metrics that turned out
+    to lack enough data even though the report as a whole ran."""
+    out: dict[str, dict] = {}
+    for metric, sections in report.get("metrics", {}).items():
+        fc = sections.get("forecast", {})
         if fc.get("insufficient_data"):
             continue
-        result[metric] = {
+        trend = sections.get("growth_trend", {})
+        out[metric] = {
             "cagr_pct": trend.get("cagr_pct"),
             "latest_yoy_pct": trend.get("latest_yoy_pct"),
             "trend_direction": trend.get("trend_direction"),
             "forecast_next": fc["forecast"][0],
             "confidence_interval_95": fc["confidence_intervals"][0],
         }
-    return result or None
+    return out or None
 
 
 def _forecast_bullets(forecast: dict) -> list[str]:
@@ -141,7 +156,8 @@ def fundamental_analyst_node(state: AnalysisState) -> AnalysisState:
                "net_income": f.net_income, "debt_to_equity": f.debt_to_equity, **f.metrics}
     narrative = get_llm().invoke(_PROMPT.format(ticker=ticker, metrics=metrics)).content
 
-    forecast = _history_forecast(ticker)
+    fundamentals_report = _history_full_report(ticker)
+    forecast = _forecast_summary(fundamentals_report) if fundamentals_report else None
     if forecast:
         notes = [*notes, *_forecast_bullets(forecast)]
 
@@ -153,6 +169,7 @@ def fundamental_analyst_node(state: AnalysisState) -> AnalysisState:
         "narrative": narrative,
         "period": f.period,
         "forecast": forecast,
+        "fundamentals_report": fundamentals_report,
     }
     log.info("fundamental_analyst %s -> %s (%.2f)", ticker, stance, score)
     dec = make_decision("fundamental_analyst", 2, {"metrics": metrics}, finding,
