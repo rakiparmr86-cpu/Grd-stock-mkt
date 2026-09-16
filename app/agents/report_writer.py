@@ -88,6 +88,10 @@ def report_writer_node(state: AnalysisState) -> AnalysisState:
         # the report can be exported to the same "GRD Calculation" Excel
         # sheet as scripts/write_grd_calculation.py without recomputing it
         "fundamentals_report": findings.get("fundamental_analyst", {}).get("fundamentals_report"),
+        # Margins / Returns / Valuation / Quality ratios — see
+        # app.services.calculations.ratios; also exported to the same
+        # "GRD Calculation" Excel sheet.
+        "ratio_report": findings.get("fundamental_analyst", {}).get("ratio_report"),
         "chart_b64": chart_b64,
     }
     log.info("report_writer %s -> action=%s", ticker, action)

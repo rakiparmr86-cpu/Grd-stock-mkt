@@ -562,7 +562,7 @@ Beat entry.
   (`GET /inputs`, `POST /inputs/{id}/run`), and a header with the user's email +
   **Sign out**. Any `AuthError` mid-session bounces back to the sign-in screen.
 
-CORS allows `:5173`. `npm install && npm run dev` → `http://localhost:5173`;
+CORS allows `:5170`. `npm install && npm run dev` → `http://localhost:5170`;
 `npm run build` → `dist/`.
 
 Still 🟡: no watchlist/strategy/report screens, no realtime (`/ws/signals`), no

@@ -87,7 +87,7 @@ celery -A app.workers.celery_app worker -l info
 celery -A app.workers.celery_app beat -l info
 
 # frontend (separate shell) — sign in with the demo login
-cd frontend/my-react-app && npm install && npm run dev   # http://localhost:5173
+cd frontend/my-react-app && npm install && npm run dev   # http://localhost:5170
 ```
 
 `/inputs/*` needs a bearer token — the frontend handles it after sign-in; for

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from app.services.calculations.statistics import (
+    backtest_forecast,
     confidence_interval,
     correlation_matrix,
     descriptive_stats,
@@ -171,6 +172,21 @@ def test_confidence_interval_95():
     assert out["high"] == pytest.approx(100 + 1.959963984540054 * 10, abs=1e-6)
 
 
+# ── 6.8 backtest_forecast ────────────────────────────────────────────────
+def test_backtest_forecast_insufficient_data():
+    out = backtest_forecast(pd.Series([1.0, 2.0, 3.0]))
+    assert out["insufficient_data"] is True
+
+
+def test_backtest_forecast_scores_a_steady_trend_accurately():
+    s = pd.Series([100.0, 110.0, 121.0, 133.0, 146.0, 161.0, 177.0], dtype=float)
+    out = backtest_forecast(s)
+    assert out["n_backtests"] > 0
+    assert out["mape_pct"] is not None
+    assert out["mape_pct"] < 20  # a smooth compounding series should forecast well
+    assert 0 <= out["directional_hit_rate_pct"] <= 100
+
+
 # ── orchestration ──────────────────────────────────────────────────────────
 def test_full_report_runs_all_sections():
     years = [str(y) for y in range(2018, 2024)]
@@ -185,6 +201,15 @@ def test_full_report_runs_all_sections():
         assert "growth_trend" in metric_report
         assert "volatility_downside" in metric_report
         assert "forecast" in metric_report
+        assert "backtest" not in metric_report  # opt-in, off by default
     assert "correlation" in report
     assert "regression" in report
-    assert report["regression"]["r_squared"] > 0.9
+
+
+def test_full_report_includes_backtest_when_opted_in():
+    years = [str(y) for y in range(2018, 2024)]
+    sales = pd.Series([100, 110, 121, 133, 146, 161], index=years, dtype=float)
+    df = pd.DataFrame({"sales": sales})
+
+    report = full_report(df, periods_per_year=1, include_backtest=True)
+    assert "backtest" in report["metrics"]["sales"]

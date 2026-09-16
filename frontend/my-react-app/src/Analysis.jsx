@@ -10,6 +10,7 @@ import {
   reportHtmlUrl,
   triggerRun,
 } from './api'
+import { useReportBusy } from './taskActivity'
 
 function fmtDate(s) {
   if (!s) return '—'
@@ -45,6 +46,7 @@ function RunTrigger({ onQueued, onExpire }) {
   const [forceAgents, setForceAgents] = useState(false)
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
+  useReportBusy(busy)
 
   const submit = async (e) => {
     e.preventDefault()
@@ -250,7 +252,7 @@ function RunDetail({ run, onExpire }) {
                         View HTML
                       </a>
                     )}
-                    {r.payload?.fundamentals_report && (
+                    {(r.payload?.fundamentals_report || r.payload?.ratio_report) && (
                       <a className="ghost-link" href={reportExcelUrl(r.id)}>
                         Download Excel
                       </a>
@@ -391,6 +393,7 @@ export default function Analysis({ onExpire }) {
   const [selectedId, setSelectedId] = useState(null)
   const [pendingTask, setPendingTask] = useState(null)
   const [err, setErr] = useState(null)
+  useReportBusy(pendingTask != null)
 
   const refresh = useCallback(async () => {
     try {

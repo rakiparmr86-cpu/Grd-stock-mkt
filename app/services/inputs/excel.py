@@ -53,14 +53,25 @@ def _screener_fundamental_records(path: Path, sheet: str, ticker: str | None) ->
     """Try reading ``sheet`` as a Screener-style row-per-metric statement and
     transposing it into one Fundamental record per period. Returns ``None``
     (not an error) when the sheet doesn't have that shape, so the caller can
-    fall back to treating it as an already-tidy fundamentals table."""
-    if not ticker:
-        return None
+    fall back to treating it as an already-tidy fundamentals table.
+
+    Raises ``ConfigError`` when the sheet *is* Screener-shaped but no ticker
+    was given — without one there's no way to say whose data this is, and
+    silently falling through to the flat-table path would parse the title
+    row as a header and produce garbage that ``upsert_fundamentals`` then
+    drops row-by-row for lacking a ticker/period, i.e. a file that visibly
+    "worked" but silently imported nothing.
+    """
     raw = pd.read_excel(path, sheet_name=sheet, header=None)
     try:
         wide = transpose_statement_sheet(raw)
     except ValueError:
         return None
+    if not ticker:
+        raise ConfigError(
+            f"sheet {sheet!r} looks like a Screener-style statement (has a 'Narration' "
+            "row) but no ticker was given — set 'ticker' so this can be matched to a company"
+        )
 
     records = []
     for period, row in wide.iterrows():

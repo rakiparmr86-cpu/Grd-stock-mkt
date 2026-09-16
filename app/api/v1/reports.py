@@ -51,7 +51,8 @@ def get_report_excel(report_id: int, reports: ReportRepo) -> StreamingResponse:
     if not report:
         raise HTTPException(404, "report not found")
     data_driven = (report.payload or {}).get("fundamentals_report")
-    if not data_driven:
+    ratio_report = (report.payload or {}).get("ratio_report")
+    if not data_driven and not ratio_report:
         raise HTTPException(
             404,
             "no fundamentals data-driven report on this run — needs >= 4 periods of "
@@ -60,7 +61,7 @@ def get_report_excel(report_id: int, reports: ReportRepo) -> StreamingResponse:
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    write_grd_calculation_sheet(wb, data_driven=data_driven)
+    write_grd_calculation_sheet(wb, data_driven=data_driven, ratio_report=ratio_report)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

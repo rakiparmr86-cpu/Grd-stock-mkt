@@ -72,9 +72,9 @@ def test_writes_sheet_from_the_reports_own_fundamentals_report(monkeypatch, samp
     calls = []
 
     def fake_write(wb, *, scenario_rows=None, outlook_rows=None, data_driven=None,
-                   sheet_name="GRD Calculation"):
+                   ratio_report=None, sheet_name="GRD Calculation"):
         calls.append({"scenario_rows": scenario_rows, "outlook_rows": outlook_rows,
-                      "data_driven": data_driven})
+                      "data_driven": data_driven, "ratio_report": ratio_report})
         return wb.create_sheet(sheet_name)
 
     monkeypatch.setattr(reports_module, "write_grd_calculation_sheet", fake_write)
@@ -86,6 +86,36 @@ def test_writes_sheet_from_the_reports_own_fundamentals_report(monkeypatch, samp
     assert calls[0]["data_driven"] == sample_data_driven
     assert calls[0]["scenario_rows"] is None
     assert calls[0]["outlook_rows"] is None
+
+
+def test_report_with_only_ratio_report_returns_xlsx_stream():
+    """A run can have Margins/Returns/Valuation/Quality ratios computed even
+    when there's too little history for the data-driven trend/forecast
+    section (< 4 periods) — the endpoint must still serve a workbook rather
+    than 404, since there's real content to show."""
+    ratio_report = {"margins": {}, "returns": {}, "valuation": {}, "quality": {}}
+    report = _make_report({"fundamentals_report": None, "ratio_report": ratio_report})
+
+    resp = get_report_excel(1, _FakeReportRepo(report))
+
+    assert isinstance(resp, StreamingResponse)
+
+
+def test_writes_ratio_report_to_the_sheet(monkeypatch):
+    calls = []
+
+    def fake_write(wb, *, scenario_rows=None, outlook_rows=None, data_driven=None,
+                   ratio_report=None, sheet_name="GRD Calculation"):
+        calls.append(ratio_report)
+        return wb.create_sheet(sheet_name)
+
+    monkeypatch.setattr(reports_module, "write_grd_calculation_sheet", fake_write)
+
+    ratio_report = {"margins": {}, "returns": {}, "valuation": {}, "quality": {}}
+    report = _make_report({"ratio_report": ratio_report})
+    get_report_excel(1, _FakeReportRepo(report))
+
+    assert calls == [ratio_report]
 
 
 def test_ticker_falls_back_to_generic_filename_when_missing(sample_data_driven):

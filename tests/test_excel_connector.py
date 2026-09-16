@@ -4,8 +4,9 @@ and auto-detected Screener-style row-per-metric statement sheets (new)."""
 from __future__ import annotations
 
 import openpyxl
+import pytest
 
-from app.services.inputs.base import ConnectorKind
+from app.services.inputs.base import ConfigError, ConnectorKind
 from app.services.inputs.excel import ExcelConnector
 
 
@@ -77,16 +78,17 @@ def test_screener_shape_auto_detected_and_transposed(tmp_path):
 
 
 def test_screener_shape_requires_ticker(tmp_path):
+    """Without a ticker, a genuinely Screener-shaped sheet must fail loudly —
+    not silently fall back to flat-parsing (which would misread the title
+    row as a header and end up importing 0 rows with no error at all)."""
     path = tmp_path / "screener.xlsx"
     _screener_style_workbook(path)
 
-    # no ticker in config -> falls back to flat-row parsing of the same
-    # sheet, which won't look anything like the transposed shape
     conn = ExcelConnector({
         "path": str(path), "mode": "rows", "row_kind": "fundamental", "sheet": "Profit & Loss",
     })
-    rows = next(iter(conn.fetch())).rows
-    assert "revenue" not in rows.columns
+    with pytest.raises(ConfigError, match="no ticker was given"):
+        next(iter(conn.fetch()))
 
 
 def test_default_kind_is_rows_for_fundamental_mode(tmp_path):

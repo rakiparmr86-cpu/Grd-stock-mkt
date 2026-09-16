@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -13,6 +15,17 @@ from app.models.market import OHLCV, Fundamental, IndicatorPoint
 log = get_logger(__name__)
 
 _FUNDAMENTAL_COLS = {"revenue", "net_income", "eps", "pe", "debt_to_equity"}
+
+
+def _json_safe(value):
+    """NaN/Infinity have no JSON representation — the ``metrics`` JSONB
+    column rejects them outright, failing the *entire* batch insert for one
+    bad value. Screener's exported ratios (e.g. Return on Capital Employed)
+    routinely divide by zero in a company's earliest years, producing NaN —
+    normalize that to None instead of losing every other period in the batch."""
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
 
 
 def upsert_ohlcv(df: pd.DataFrame, *, interval: str = "1d") -> int:
@@ -28,7 +41,9 @@ def upsert_ohlcv(df: pd.DataFrame, *, interval: str = "1d") -> int:
             "open": float(r["open"]), "high": float(r["high"]),
             "low": float(r["low"]), "close": float(r["close"]),
             "volume": float(r.get("volume", 0) or 0),
-            "source": str(r.get("source", "unknown")),
+            # truncate rather than let one long source string fail the
+            # whole batch's insert (matches the ohlcv.source column width)
+            "source": str(r.get("source", "unknown"))[:255],
         })
     with session_scope() as db:
         stmt = pg_insert(OHLCV).values(rows)
@@ -51,9 +66,14 @@ def upsert_fundamentals(records: list[dict]) -> int:
         ticker, period = rec.get("ticker"), rec.get("period")
         if not ticker or not period:
             continue
-        known = {c: rec.get(c) for c in _FUNDAMENTAL_COLS if rec.get(c) is not None}
-        extra = {k: v for k, v in rec.items()
-                 if k not in _FUNDAMENTAL_COLS | {"ticker", "period", "reported_at"}}
+        known = {
+            c: _json_safe(rec.get(c)) for c in _FUNDAMENTAL_COLS if rec.get(c) is not None
+        }
+        known = {c: v for c, v in known.items() if v is not None}
+        extra = {
+            k: _json_safe(v) for k, v in rec.items()
+            if k not in _FUNDAMENTAL_COLS | {"ticker", "period", "reported_at"}
+        }
         rows.append({
             "ticker": str(ticker).upper(), "period": str(period),
             "reported_at": rec.get("reported_at"),
@@ -96,6 +116,29 @@ def load_fundamentals_frame(ticker: str) -> pd.DataFrame:
         {"period": r.period, **{c: getattr(r, c) for c in cols}}
         for r in rows
     ]
+    return pd.DataFrame(data).set_index("period")
+
+
+def load_fundamentals_frame_full(ticker: str) -> pd.DataFrame:
+    """Like ``load_fundamentals_frame`` but also flattens each row's
+    free-form ``metrics`` JSONB into columns. Needed by
+    ``app.services.calculations.ratios``, which looks up Balance Sheet /
+    Cash Flow line items (equity, total assets, borrowings, ...) that only
+    ever land in ``metrics`` — never in the typed columns."""
+    with session_scope() as db:
+        stmt = (
+            select(Fundamental)
+            .where(Fundamental.ticker == ticker.upper())
+            .order_by(Fundamental.reported_at.asc().nullslast(), Fundamental.period.asc())
+        )
+        rows = list(db.execute(stmt).scalars())
+    if not rows:
+        return pd.DataFrame()
+    data = []
+    for r in rows:
+        rec = {"period": r.period,
+               **{c: getattr(r, c) for c in _FUNDAMENTAL_COLS}, **(r.metrics or {})}
+        data.append(rec)
     return pd.DataFrame(data).set_index("period")
 
 

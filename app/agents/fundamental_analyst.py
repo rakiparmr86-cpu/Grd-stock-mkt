@@ -21,8 +21,12 @@ from app.agents.state import AnalysisState
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.models.market import Fundamental
+from app.services.calculations.ratios import full_ratio_report
 from app.services.calculations.statistics import full_report
-from app.services.market_data.repository import load_fundamentals_frame
+from app.services.market_data.repository import (
+    load_fundamentals_frame,
+    load_fundamentals_frame_full,
+)
 
 log = get_logger(__name__)
 
@@ -92,7 +96,32 @@ def _history_full_report(ticker: str) -> dict | None:
     if "net_income" in cols and "revenue" in cols:
         target, features = "net_income", ["revenue"]
     return full_report(frame[cols], target=target, features=features,
-                       periods_per_year=1, forecast_periods=1)
+                       periods_per_year=1, forecast_periods=1, include_backtest=True)
+
+
+def _latest_price(state: AnalysisState) -> float | None:
+    """Best-effort latest close from the OHLCV tail the orchestrator already
+    loaded for this run — used to derive P/E (when the statement has none),
+    P/B, and the EV multiples, none of which can be computed from a
+    statement alone."""
+    records = state.get("price_frame_records") or []
+    if not records:
+        return None
+    close = records[-1].get("close")
+    return float(close) if close is not None else None
+
+
+def _ratio_report(ticker: str, price: float | None) -> dict | None:
+    """Margins / Returns / Valuation / Quality ratios (see
+    ``app.services.calculations.ratios``) computed over every ``Fundamental``
+    row on file, including whatever Balance Sheet / Cash Flow line items
+    happen to be in each row's free-form ``metrics``. Returns ``None`` when
+    there's no fundamentals data at all — individual ratios still degrade
+    gracefully (``insufficient_data``) when only some inputs are present."""
+    frame = load_fundamentals_frame_full(ticker)
+    if frame.empty:
+        return None
+    return full_ratio_report(frame, price=price)
 
 
 def _forecast_summary(report: dict) -> dict | None:
@@ -160,6 +189,7 @@ def fundamental_analyst_node(state: AnalysisState) -> AnalysisState:
     forecast = _forecast_summary(fundamentals_report) if fundamentals_report else None
     if forecast:
         notes = [*notes, *_forecast_bullets(forecast)]
+    ratio_report = _ratio_report(ticker, _latest_price(state))
 
     finding = {
         "agent": "fundamental_analyst",
@@ -170,6 +200,7 @@ def fundamental_analyst_node(state: AnalysisState) -> AnalysisState:
         "period": f.period,
         "forecast": forecast,
         "fundamentals_report": fundamentals_report,
+        "ratio_report": ratio_report,
     }
     log.info("fundamental_analyst %s -> %s (%.2f)", ticker, stance, score)
     dec = make_decision("fundamental_analyst", 2, {"metrics": metrics}, finding,

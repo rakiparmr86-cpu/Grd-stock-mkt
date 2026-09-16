@@ -46,7 +46,7 @@ Frontend (optional, separate shell):
 ```bash
 cd frontend/my-react-app
 npm install
-npm run dev          # http://localhost:5173  → sign in with the demo login
+npm run dev          # http://localhost:5170  → sign in with the demo login
 ```
 
 > `command.txt` in the repo still lists the old path `D:\newdata\Grd-stk-mkt`.
@@ -268,8 +268,8 @@ Full detail + conventions: **[DATABASE.md](DATABASE.md)**.
   `username` = email) → token stored → `me()` confirms → console. A 401 from any
   call throws `AuthError`, clears the token, and returns to sign-in.
 - API base: `VITE_API_BASE` (default `http://localhost:8000/api/v1`); CORS in
-  `app/core/config.py::cors_origins` allows `:5173`.
-- `npm install && npm run dev` → `http://localhost:5173`; `npm run build` → `dist/`.
+  `app/core/config.py::cors_origins` allows `:5170`.
+- `npm install && npm run dev` → `http://localhost:5170`; `npm run build` → `dist/`.
 - **Adding a screen:** import `api` from `./api` (token is attached for you),
   add a component, mount it in `App`'s `Console`. New protected endpoints just
   work; handle `AuthError` by calling the passed `onExpire`/`onSignOut`.
@@ -477,7 +477,7 @@ Add a line per change. Format: `YYYY-MM-DD — <area>: <what changed> (<who/PR>)
   PDF/image → ad-hoc ingest or saved source) and `POST /inputs/crawl` (URL →
   web_crawler, SSRF-guarded, `save_as` optional). New `run_adhoc_connector`
   task, `inputs/upload.py` + `inputs/ssrf.py`, settings `UPLOADS_DIR` /
-  `UPLOAD_MAX_MB` / `CRAWLER_ALLOW_PRIVATE`, CORS `:5173`. `frontend/App.jsx`
+  `UPLOAD_MAX_MB` / `CRAWLER_ALLOW_PRIVATE`, CORS `:5170`. `frontend/App.jsx`
   rebuilt as an Inputs console (upload / crawl / sources table). Tests: +12
   (`pytest -q` → 40 pass, 1 skip). Docs: OVERVIEW (plain-language "two ways in"
   + Inputs page), TECHNICAL §8/§11a/§14, CONFIGURATION, DATA_FORMATS.

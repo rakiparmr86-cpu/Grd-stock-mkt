@@ -3,6 +3,7 @@ import './App.css'
 import Analysis from './Analysis'
 import AuthForm from './AuthForm'
 import { API_BASE, AuthError, api, getToken, logout, me } from './api'
+import { GlobalLoader, TaskActivityProvider, useReportBusy } from './taskActivity'
 
 function Result({ value }) {
   if (!value) return null
@@ -101,13 +102,20 @@ function UploadCard({ onExpire }) {
   const [excelMode, setExcelMode] = useState('docs')
   const [rowKind, setRowKind] = useState('ohlcv')
   const [docType, setDocType] = useState('')
+  const [ticker, setTicker] = useState('')
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
   const { statuses, track, reset } = useTaskPolling(onExpire)
 
+  // required for row-based Excel ingestion: without a ticker, a fundamental
+  // statement sheet can't be matched to a company and silently ingests 0
+  // rows (see app/services/inputs/excel.py's Screener-shape detection)
+  const tickerRequired = excelMode === 'rows'
+
   const submit = async (e) => {
     e.preventDefault()
     if (!files?.length) return
+    if (tickerRequired && !ticker.trim()) return
     setBusy(true)
     setOut(null)
     reset()
@@ -118,6 +126,7 @@ function UploadCard({ onExpire }) {
       fd.append('excel_mode', excelMode)
       fd.append('row_kind', rowKind)
       if (docType) fd.append('doc_type', docType)
+      if (ticker.trim()) fd.append('ticker', ticker.trim().toUpperCase())
       const res = await api('/inputs/upload', { method: 'POST', body: fd })
       setOut(res)
       for (const item of res.items || []) {
@@ -132,6 +141,8 @@ function UploadCard({ onExpire }) {
   }
 
   const queuedItems = (out?.items || []).filter((item) => item.task_id)
+  const anyTaskPending = queuedItems.some((item) => !statuses[item.task_id]?.ready)
+  useReportBusy(busy || anyTaskPending)
 
   return (
     <form className="card" onSubmit={submit}>
@@ -174,8 +185,25 @@ function UploadCard({ onExpire }) {
             onChange={(e) => setDocType(e.target.value)}
           />
         </label>
+        <label>
+          Ticker{tickerRequired ? ' (required)' : ' (optional)'}
+          <input
+            type="text"
+            placeholder="e.g. HDFCBANK"
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+          />
+        </label>
       </div>
-      <button disabled={busy || !files?.length}>{busy ? 'Uploading…' : 'Upload'}</button>
+      {tickerRequired && (
+        <p className="hint">
+          Required for price/fundamental rows — without it the file can't be matched to a
+          company and silently imports 0 rows.
+        </p>
+      )}
+      <button disabled={busy || !files?.length || (tickerRequired && !ticker.trim())}>
+        {busy ? 'Uploading…' : 'Upload'}
+      </button>
       <Result value={out} />
       {queuedItems.length > 0 && (
         <div className="task-status">
@@ -197,12 +225,14 @@ function CrawlCard({ onExpire }) {
   const [saveAs, setSaveAs] = useState('')
   const [busy, setBusy] = useState(false)
   const [out, setOut] = useState(null)
+  const { statuses, track, reset } = useTaskPolling(onExpire)
 
   const submit = async (e) => {
     e.preventDefault()
     if (!url.trim()) return
     setBusy(true)
     setOut(null)
+    reset()
     try {
       const body = {
         urls: [url.trim()],
@@ -212,7 +242,9 @@ function CrawlCard({ onExpire }) {
         include_patterns: include.trim() ? [include.trim()] : [],
       }
       if (saveAs.trim()) body.save_as = saveAs.trim()
-      setOut(await api('/inputs/crawl', { method: 'POST', body: JSON.stringify(body) }))
+      const res = await api('/inputs/crawl', { method: 'POST', body: JSON.stringify(body) })
+      setOut(res)
+      if (res.task_id) track(res.task_id)
     } catch (err) {
       if (err instanceof AuthError) return onExpire()
       setOut({ error: String(err.message || err) })
@@ -220,6 +252,8 @@ function CrawlCard({ onExpire }) {
       setBusy(false)
     }
   }
+
+  useReportBusy(busy || Boolean(out?.task_id && !statuses[out.task_id]?.ready))
 
   return (
     <form className="card" onSubmit={submit}>
@@ -287,6 +321,11 @@ function CrawlCard({ onExpire }) {
       </div>
       <button disabled={busy || !url.trim()}>{busy ? 'Queuing…' : 'Start crawl'}</button>
       <Result value={out} />
+      {out?.task_id && (
+        <div className="task-status">
+          <TaskStatusRow label="crawl" status={statuses[out.task_id]} />
+        </div>
+      )}
     </form>
   )
 }
@@ -321,6 +360,7 @@ function Sources({ onExpire }) {
   // sourceId -> task_id, for runs currently in flight from this table
   const [runningTasks, setRunningTasks] = useState({})
   const { statuses, track, reset: resetTasks } = useTaskPolling(onExpire)
+  useReportBusy(Object.keys(runningTasks).length > 0)
 
   const load = useCallback(async () => {
     try {
@@ -442,42 +482,45 @@ function Console({ user, onSignOut }) {
   const [page, setPage] = useState('analysis')
 
   return (
-    <main className="app">
-      <header>
-        <h1>grd-stk-mkt</h1>
-        <span className="api">{API_BASE}</span>
-        <span className="spacer" />
-        <span className="who">{user?.email}</span>
-        <button type="button" className="ghost" onClick={onSignOut}>
-          Sign out
-        </button>
-      </header>
-      <div className="tabs page-tabs">
-        <button type="button" className={page === 'analysis' ? 'on' : ''} onClick={() => setPage('analysis')}>
-          Analysis
-        </button>
-        <button type="button" className={page === 'inputs' ? 'on' : ''} onClick={() => setPage('inputs')}>
-          Inputs
-        </button>
-      </div>
+    <TaskActivityProvider>
+      <main className="app">
+        <header>
+          <h1>grd-stk-mkt</h1>
+          <span className="api">{API_BASE}</span>
+          <GlobalLoader />
+          <span className="spacer" />
+          <span className="who">{user?.email}</span>
+          <button type="button" className="ghost" onClick={onSignOut}>
+            Sign out
+          </button>
+        </header>
+        <div className="tabs page-tabs">
+          <button type="button" className={page === 'analysis' ? 'on' : ''} onClick={() => setPage('analysis')}>
+            Analysis
+          </button>
+          <button type="button" className={page === 'inputs' ? 'on' : ''} onClick={() => setPage('inputs')}>
+            Inputs
+          </button>
+        </div>
 
-      {page === 'analysis' && <Analysis onExpire={onSignOut} />}
+        {page === 'analysis' && <Analysis onExpire={onSignOut} />}
 
-      {page === 'inputs' && (
-        <>
-          <div className="grid">
-            <UploadCard onExpire={onSignOut} />
-            <CrawlCard onExpire={onSignOut} />
-          </div>
-          <Sources onExpire={onSignOut} />
-        </>
-      )}
+        {page === 'inputs' && (
+          <>
+            <div className="grid">
+              <UploadCard onExpire={onSignOut} />
+              <CrawlCard onExpire={onSignOut} />
+            </div>
+            <Sources onExpire={onSignOut} />
+          </>
+        )}
 
-      <footer>
-        Scheduled runs still come from Celery Beat + a worker. This page adds
-        sign-in, upload / crawl-now, and an analysis results viewer on top.
-      </footer>
-    </main>
+        <footer>
+          Scheduled runs still come from Celery Beat + a worker. This page adds
+          sign-in, upload / crawl-now, and an analysis results viewer on top.
+        </footer>
+      </main>
+    </TaskActivityProvider>
   )
 }
 

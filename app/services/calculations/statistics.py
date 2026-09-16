@@ -15,6 +15,7 @@ Covers, in order:
   6.5 forecast                 — ETS or ARIMA/SARIMA, gated on history length
   6.6 volatility_downside      — std, downside deviation, max drawdown
   6.7 confidence_interval      — generic normal-approx interval helper
+  6.8 backtest_forecast        — walk-forward forecast accuracy (MAPE/RMSE/hit rate)
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ __all__ = [
     "forecast",
     "volatility_downside",
     "confidence_interval",
+    "backtest_forecast",
     "full_report",
 ]
 
@@ -378,6 +380,59 @@ def confidence_interval(
     }
 
 
+# ── 6.8 forecast reliability (walk-forward backtest) ────────────────────
+def backtest_forecast(
+    series: pd.Series, min_train_periods: int = _MIN_PERIODS_FOR_ETS,
+) -> dict[str, Any]:
+    """Walk ``forecast()`` forward one period at a time and score its
+    one-step-ahead point forecast against what actually happened —
+    "is this forecast trustworthy", not just "what does it predict".
+
+    Refits on every expanding window from ``min_train_periods`` onward.
+    Skips (rather than fails) a window ``forecast()`` itself can't fit.
+    """
+    s = _clean(series)
+    n = len(s)
+    if n < min_train_periods + 1:
+        return {
+            "insufficient_data": True, "rows_available": n,
+            "rows_required": min_train_periods + 1,
+            "reason": "not enough history to hold out even one period for backtesting",
+        }
+
+    errors: list[float] = []
+    pct_errors: list[float] = []
+    hits: list[bool] = []
+    for cutoff in range(min_train_periods, n):
+        train = s.iloc[:cutoff]
+        actual = float(s.iloc[cutoff])
+        try:
+            fc = forecast(train, periods_ahead=1, seasonal_periods=None)
+        except Exception:  # noqa: BLE001 — one bad window shouldn't kill the whole backtest
+            continue
+        if fc.get("insufficient_data"):
+            continue
+        predicted = fc["forecast"][0]
+        errors.append(predicted - actual)
+        if actual:
+            pct_errors.append(abs((predicted - actual) / actual) * 100)
+        prev = float(train.iloc[-1])
+        hits.append((predicted - prev) * (actual - prev) >= 0)
+
+    if not errors:
+        return {"insufficient_data": True, "rows_available": n,
+                "reason": "no backtest window produced a usable forecast"}
+
+    errors_arr = np.asarray(errors)
+    return {
+        "n_backtests": len(errors),
+        "mae": float(np.mean(np.abs(errors_arr))),
+        "rmse": float(np.sqrt(np.mean(errors_arr ** 2))),
+        "mape_pct": float(np.mean(pct_errors)) if pct_errors else None,
+        "directional_hit_rate_pct": float(np.mean(hits) * 100) if hits else None,
+    }
+
+
 # ── orchestration ────────────────────────────────────────────────────────
 def full_report(
     df: pd.DataFrame,
@@ -387,12 +442,17 @@ def full_report(
     forecast_periods: int = 1,
     seasonal_periods: int | None = None,
     regression_method: Literal["linear", "ridge", "lasso"] = "linear",
+    include_backtest: bool = False,
 ) -> dict[str, Any]:
     """Run 6.1-6.7 across every numeric column of a period-indexed frame.
 
     ``target``/``features`` (both column names in ``df``) enable the
     correlation + regression sections; without them only the per-metric
     sections (descriptive stats, growth/trend, forecast, volatility) run.
+    ``include_backtest`` adds 6.8 per metric — off by default since it
+    refits ``forecast()`` once per historical period and is only cheap for
+    the small (annual/quarterly) series this module is meant for, not a
+    750-row daily OHLCV column.
     """
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(
         pd.to_numeric(df[c], errors="coerce")
@@ -408,6 +468,8 @@ def full_report(
                 s, periods_ahead=forecast_periods, seasonal_periods=seasonal_periods
             ),
         }
+        if include_backtest:
+            per_metric[col]["backtest"] = backtest_forecast(s)
 
     report: dict[str, Any] = {"metrics": per_metric}
     if len(numeric_cols) > 1:

@@ -45,7 +45,8 @@ class OHLCV(Base):
     low: Mapped[float] = mapped_column(Numeric(18, 4))
     close: Mapped[float] = mapped_column(Numeric(18, 4))
     volume: Mapped[float] = mapped_column(Numeric(20, 2), default=0)
-    source: Mapped[str | None] = mapped_column(String(32))
+    # generous width: uploaded-file sources are "csv:<12-hex-prefix>_<original filename>"
+    source: Mapped[str | None] = mapped_column(String(255))
 
 
 class Fundamental(Base, TimestampMixin):

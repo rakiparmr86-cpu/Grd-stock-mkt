@@ -24,7 +24,7 @@ Every setting, its default, what it does, and what breaks if it's wrong.
 | `SECRET_KEY` | `change-me` | **Signs JWTs.** Must be a long random string (≥ 32 chars) in any shared env; changing it invalidates all existing tokens. `/inputs/*` requires a valid token — see [../scripts/create_user.py](../scripts/create_user.py). |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT lifetime. No refresh token yet — on expiry the frontend returns to sign-in. |
 | `ALGORITHM` | `HS256` | JWT signing algo. Leave unless you know why. |
-| `CORS_ORIGINS` | `["http://localhost:3000"]` | Browser origins allowed to call the API. Add the Vite dev origin (`http://localhost:5173`) when wiring the frontend. JSON list. |
+| `CORS_ORIGINS` | `["http://localhost:3000", "http://localhost:5170"]` | Browser origins allowed to call the API. In dev, any `localhost`/`127.0.0.1` port is also allowed regardless of this list (see `app/main.py`'s `allow_origin_regex`). JSON list. |
 
 ## Logging
 

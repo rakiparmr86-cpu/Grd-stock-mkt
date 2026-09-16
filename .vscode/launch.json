@@ -81,5 +81,13 @@
       "justMyCode": false,
       "console": "integratedTerminal"
     }
+  ],
+  "compounds": [
+    {
+      "name": "API + Celery worker (debug both)",
+      "configurations": ["API: uvicorn (no reload — for breakpoints in routes)", "Celery worker"],
+      "stopAll": true,
+      "presentation": { "order": 1 }
+    }
   ]
 }

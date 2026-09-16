@@ -47,6 +47,10 @@ def test_single_period_no_forecast_section(monkeypatch):
         "app.agents.fundamental_analyst.load_fundamentals_frame",
         lambda ticker: pd.DataFrame({"revenue": [100.0], "net_income": [15.0]}, index=["FY2024"]),
     )
+    monkeypatch.setattr(
+        "app.agents.fundamental_analyst.load_fundamentals_frame_full",
+        lambda ticker: pd.DataFrame({"revenue": [100.0], "net_income": [15.0]}, index=["FY2024"]),
+    )
     state = {"ticker": "ONEROW", "findings": [], "decisions": []}
     out = fundamental_analyst_node(state)
     finding = out["findings"][0]
@@ -67,6 +71,9 @@ def test_enough_history_adds_forecast(monkeypatch):
     }, index=years)
     monkeypatch.setattr(
         "app.agents.fundamental_analyst.load_fundamentals_frame", lambda ticker: frame
+    )
+    monkeypatch.setattr(
+        "app.agents.fundamental_analyst.load_fundamentals_frame_full", lambda ticker: frame
     )
     state = {"ticker": "GROWCO", "findings": [], "decisions": []}
     out = fundamental_analyst_node(state)
@@ -92,6 +99,12 @@ def test_enough_history_adds_forecast(monkeypatch):
     assert ci["low"] <= rev["forecast_next"] <= ci["high"]
     assert any("revenue" in b and "CAGR" in b for b in finding["bullets"])
 
+    # Margins / Returns / Valuation / Quality — degrade gracefully without a
+    # price or balance-sheet fields, but the section is always present
+    ratio_report = finding["ratio_report"]
+    assert set(ratio_report) == {"margins", "returns", "valuation", "quality"}
+    assert ratio_report["margins"]["net_profit_margin_pct"]["insufficient_data"] is False
+
 
 def test_forecast_skips_metric_with_insufficient_history(monkeypatch):
     monkeypatch.setattr(
@@ -105,6 +118,9 @@ def test_forecast_skips_metric_with_insufficient_history(monkeypatch):
     }, index=[str(y) for y in range(2020, 2024)])
     monkeypatch.setattr(
         "app.agents.fundamental_analyst.load_fundamentals_frame", lambda ticker: frame
+    )
+    monkeypatch.setattr(
+        "app.agents.fundamental_analyst.load_fundamentals_frame_full", lambda ticker: frame
     )
     state = {"ticker": "PARTIAL", "findings": [], "decisions": []}
     out = fundamental_analyst_node(state)
@@ -128,6 +144,21 @@ def test_report_writer_includes_forecast_when_present():
     }
     out = report_writer_node(state)
     assert out["report_payload"]["forecast"] == state["findings"][0]["forecast"]
+
+
+def test_report_writer_includes_ratio_report_when_present():
+    ratio_report = {"margins": {}, "returns": {}, "valuation": {}, "quality": {}}
+    state = {
+        "ticker": "GROWCO",
+        "risk_review": {"verdict": "go", "conviction": 0.5},
+        "findings": [{
+            "agent": "fundamental_analyst", "forecast": None,
+            "ratio_report": ratio_report, "narrative": "", "bullets": [],
+        }],
+        "signals": [], "decisions": [],
+    }
+    out = report_writer_node(state)
+    assert out["report_payload"]["ratio_report"] == ratio_report
 
 
 def test_report_writer_forecast_none_when_absent():

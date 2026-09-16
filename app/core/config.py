@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     reports_enable_pdf: bool = False
 
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
+        default_factory=lambda: ["http://localhost:3000", "http://localhost:5170"]
     )
 
     @computed_field  # type: ignore[prop-decorator]
