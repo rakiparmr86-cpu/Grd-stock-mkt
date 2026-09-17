@@ -76,6 +76,36 @@
   </div>
   {% endfor %}
 
+  {% if forecast %}
+  <div class="card">
+    <h3>5-year forecast</h3>
+    {% for metric, f in forecast.items() %}
+    <p style="margin:12px 0 4px">
+      <strong>{{ metric|replace("_", " ")|title }}</strong>
+      <span style="color:#666">
+        {% if f.cagr_pct is not none %}({{ "%.1f"|format(f.cagr_pct) }}% historical CAGR, trending {{ f.trend_direction }}){% endif %}
+      </span>
+    </p>
+    <table>
+      <tr><th>Year</th><th>Forecast</th><th>YoY %</th><th>95% CI</th></tr>
+      {% for p in f.forecast_path %}
+      <tr>
+        <td>{{ p.period }}</td>
+        <td>{{ "%.0f"|format(p.value) }}</td>
+        <td>{{ "%+.1f"|format(p.yoy_pct) if p.yoy_pct is not none else "—" }}</td>
+        <td>{{ "%.0f"|format(p.ci_low) }} – {{ "%.0f"|format(p.ci_high) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endfor %}
+    <p class="foot" style="margin-top:8px">
+      Statistical (ETS) forecast from historical trend, independent of the scenario
+      assumptions elsewhere — the widening CI in later years is the model telling
+      you it's guessing further out, not added precision.
+    </p>
+  </div>
+  {% endif %}
+
   {% if indicators %}
   <div class="card">
     <h3>Latest indicators</h3>

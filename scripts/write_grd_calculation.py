@@ -24,28 +24,19 @@ this caveat.
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-from app.services.calculations.scenario import multi_year_outlook, scenario_projection
+from app.services.calculations.scenario import (
+    fiscal_year_labels,
+    multi_year_outlook,
+    scenario_projection,
+)
 from app.services.calculations.statistics import full_report
 from app.services.inputs.screener_excel import load_prediction_inputs, transpose_statement_sheet
 from app.services.reports.excel_writeback import write_grd_calculation_sheet
-
-
-def _outlook_labels(last_period: str) -> tuple[str, callable]:
-    """Best-effort "FY26 / TTM", "FY27E", ... labels from a "YYYY-MM" period
-    like the statement sheet's last historical column; falls back to the
-    writeback module's generic "TTM" / "Year +N" labels if it doesn't match.
-    """
-    m = re.match(r"^(\d{4})-\d{2}$", last_period)
-    if not m:
-        return "TTM", (lambda i: f"Year +{i}")
-    fy = int(m.group(1)) % 100
-    return f"FY{fy} / TTM", (lambda i: f"FY{fy + i}E")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="metric to regress/forecast as the target")
     ap.add_argument("--features", nargs="*", default=["Sales"],
                     help="metric(s) to regress target on")
-    ap.add_argument("--outlook-years", type=int, default=3)
+    ap.add_argument("--outlook-years", type=int, default=5)
     args = ap.parse_args(argv)
 
     path = Path(args.source)
@@ -90,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         profit_growth=inputs["profit_growth"],
         target_pe=inputs["target_pe"],
     )
-    start_label, year_label_fn = _outlook_labels(str(df.index[-1]))
+    start_label, year_label_fn = fiscal_year_labels(str(df.index[-1]))
     outlook_rows = multi_year_outlook(
         ttm_sales=inputs["ttm_sales"],
         ttm_net_profit=inputs["ttm_net_profit"],

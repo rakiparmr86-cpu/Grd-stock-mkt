@@ -11,10 +11,25 @@ at a scenario target P/E.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
-__all__ = ["scenario_projection", "multi_year_outlook"]
+__all__ = ["scenario_projection", "multi_year_outlook", "fiscal_year_labels"]
+
+_YEAR_MONTH = re.compile(r"^(\d{4})-\d{2}$")
+
+
+def fiscal_year_labels(last_period: str) -> tuple[str, Callable[[int], str]]:
+    """Best-effort "FY26 / TTM", "FY27E", ... labels from a "YYYY-MM" period
+    (the shape ``load_fundamentals_frame``'s period index and Screener's own
+    statement columns both use) — falls back to generic "TTM" / "Year +N"
+    labels when the period doesn't match that shape (e.g. "Q1FY25")."""
+    m = _YEAR_MONTH.match(last_period)
+    if not m:
+        return "TTM", (lambda i: f"Year +{i}")
+    fy = int(m.group(1)) % 100
+    return f"FY{fy} / TTM", (lambda i: f"FY{fy + i}E")
 
 
 def scenario_projection(

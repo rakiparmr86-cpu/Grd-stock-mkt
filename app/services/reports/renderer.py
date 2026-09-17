@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,18 +31,19 @@ class ReportRenderer:
             "title": payload.get("title", "Analysis report"),
             "run_id": payload.get("run_id", "—"),
             "strategy": payload.get("strategy"),
-            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
             "recommendation": payload.get("recommendation"),
             "chart_b64": payload.get("chart_b64"),
             "signals": payload.get("signals", []),
             "sections": payload.get("sections", []),
             "indicators": payload.get("indicators", {}),
+            "forecast": payload.get("forecast"),
         }
         return tmpl.render(**ctx)
 
     def write(self, payload: dict[str, Any], *, slug: str) -> dict[str, str]:
         html = self.render_html(payload)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         html_path = self.out_dir / f"{ts}_{slug}.html"
         html_path.write_text(html, encoding="utf-8")
         result = {"html_path": str(html_path)}

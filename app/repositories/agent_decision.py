@@ -16,3 +16,7 @@ class AgentDecisionRepository(BaseRepository[AgentDecision]):
             .order_by(AgentDecision.step)
         )
         return list(self.db.execute(stmt).scalars())
+
+    def list_recent(self, limit: int = 100) -> list[AgentDecision]:
+        stmt = select(AgentDecision).order_by(AgentDecision.created_at.desc()).limit(limit)
+        return list(self.db.execute(stmt).scalars())

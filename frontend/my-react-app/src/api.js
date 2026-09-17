@@ -125,3 +125,8 @@ export function reportExcelUrl(reportId) {
 export function getTask(taskId) {
   return api(`/tasks/${taskId}`)
 }
+
+// ── activity feed ─────────────────────────────────────────────────
+export function listActivity(limit = 100) {
+  return api(`/activity?limit=${limit}`)
+}

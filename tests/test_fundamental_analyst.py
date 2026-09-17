@@ -64,7 +64,10 @@ def test_enough_history_adds_forecast(monkeypatch):
         "app.agents.fundamental_analyst._latest_fundamental",
         lambda ticker: _FakeFundamental(pe=12.0, revenue=146.0, net_income=20.0),
     )
-    years = [str(y) for y in range(2019, 2024)]
+    # "YYYY-MM" periods, same shape load_fundamentals_frame's real DB-backed
+    # index uses (e.g. Screener fiscal-year-end labels) — exercises the real
+    # "FYxxE" labeling, not the generic "Year +N" fallback for odd labels.
+    years = ["2019-03", "2020-03", "2021-03", "2022-03", "2023-03"]
     frame = pd.DataFrame({
         "revenue": [100.0, 110.0, 121.0, 133.0, 146.0],
         "net_income": [10.0, 12.0, 15.0, 17.0, 20.0],
@@ -98,6 +101,19 @@ def test_enough_history_adds_forecast(monkeypatch):
     ci = rev["confidence_interval_95"]
     assert ci["low"] <= rev["forecast_next"] <= ci["high"]
     assert any("revenue" in b and "CAGR" in b for b in finding["bullets"])
+
+    # 5-year year-wise path, each entry with its own CI, a real fiscal-year
+    # label (not "Y1"/"Y2"), and a YoY % chained off the prior year (the
+    # last actual value for year 1)
+    path = rev["forecast_path"]
+    assert len(path) == 5
+    assert [p["year"] for p in path] == [1, 2, 3, 4, 5]
+    assert [p["period"] for p in path] == ["FY24E", "FY25E", "FY26E", "FY27E", "FY28E"]
+    assert path[0]["yoy_pct"] == pytest.approx((path[0]["value"] - 146.0) / 146.0 * 100)
+    assert path[1]["yoy_pct"] == pytest.approx(
+        (path[1]["value"] - path[0]["value"]) / path[0]["value"] * 100
+    )
+    assert any("5-year forecast" in b for b in finding["bullets"])
 
     # Margins / Returns / Valuation / Quality — degrade gracefully without a
     # price or balance-sheet fields, but the section is always present

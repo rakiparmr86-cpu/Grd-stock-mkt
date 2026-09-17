@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
+import Activity from './Activity'
 import Analysis from './Analysis'
 import AuthForm from './AuthForm'
 import { API_BASE, AuthError, api, getToken, logout, me } from './api'
@@ -501,6 +502,9 @@ function Console({ user, onSignOut }) {
           <button type="button" className={page === 'inputs' ? 'on' : ''} onClick={() => setPage('inputs')}>
             Inputs
           </button>
+          <button type="button" className={page === 'activity' ? 'on' : ''} onClick={() => setPage('activity')}>
+            Activity
+          </button>
         </div>
 
         {page === 'analysis' && <Analysis onExpire={onSignOut} />}
@@ -514,6 +518,8 @@ function Console({ user, onSignOut }) {
             <Sources onExpire={onSignOut} />
           </>
         )}
+
+        {page === 'activity' && <Activity onExpire={onSignOut} />}
 
         <footer>
           Scheduled runs still come from Celery Beat + a worker. This page adds

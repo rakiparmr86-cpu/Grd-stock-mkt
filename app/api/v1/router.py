@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_user
 from app.api.v1 import (
+    activity,
     analysis,
     auth,
     health,
@@ -31,4 +32,7 @@ api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"], dependencies=_auth)
 api_router.include_router(
     analysis.router, prefix="/analysis", tags=["analysis"], dependencies=_auth
+)
+api_router.include_router(
+    activity.router, prefix="/activity", tags=["activity"], dependencies=_auth
 )

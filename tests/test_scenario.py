@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.calculations.scenario import multi_year_outlook, scenario_projection
+from app.services.calculations.scenario import (
+    fiscal_year_labels,
+    multi_year_outlook,
+    scenario_projection,
+)
 
 # Real figures from the user's own GRDPrediction_Model.xlsx "Prediction
 # Inputs" / "Prediction Report" sheets (HDFC Bank) — used here to prove our
@@ -91,3 +95,16 @@ def test_multi_year_outlook_matches_workbook_base_case():
 def test_multi_year_outlook_length():
     rows = multi_year_outlook(100.0, 10.0, 5.0, 0.05, 0.09, years=3)
     assert len(rows) == 4  # start + 3 projected years
+
+
+def test_fiscal_year_labels_from_yyyy_mm_period():
+    start_label, year_label_fn = fiscal_year_labels("2023-03")
+    assert start_label == "FY23 / TTM"
+    assert year_label_fn(1) == "FY24E"
+    assert year_label_fn(5) == "FY28E"
+
+
+def test_fiscal_year_labels_falls_back_for_unrecognized_period():
+    start_label, year_label_fn = fiscal_year_labels("Q1FY25")
+    assert start_label == "TTM"
+    assert year_label_fn(1) == "Year +1"

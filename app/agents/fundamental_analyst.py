@@ -22,6 +22,7 @@ from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.models.market import Fundamental
 from app.services.calculations.ratios import full_ratio_report
+from app.services.calculations.scenario import fiscal_year_labels
 from app.services.calculations.statistics import full_report
 from app.services.market_data.repository import (
     load_fundamentals_frame,
@@ -96,7 +97,7 @@ def _history_full_report(ticker: str) -> dict | None:
     if "net_income" in cols and "revenue" in cols:
         target, features = "net_income", ["revenue"]
     return full_report(frame[cols], target=target, features=features,
-                       periods_per_year=1, forecast_periods=1, include_backtest=True)
+                       periods_per_year=1, forecast_periods=5, include_backtest=True)
 
 
 def _latest_price(state: AnalysisState) -> float | None:
@@ -124,23 +125,41 @@ def _ratio_report(ticker: str, price: float | None) -> dict | None:
     return full_ratio_report(frame, price=price)
 
 
-def _forecast_summary(report: dict) -> dict | None:
-    """Flatten ``_history_full_report``'s per-metric sections into the small
-    {metric: {cagr_pct, trend_direction, forecast_next, confidence_interval_95}}
-    shape the web/mobile report views render — skip metrics that turned out
-    to lack enough data even though the report as a whole ran."""
+def _forecast_summary(report: dict, ticker: str) -> dict | None:
+    """Flatten ``_history_full_report``'s per-metric sections into the
+    {metric: {cagr_pct, trend_direction, forecast_next, confidence_interval_95,
+    forecast_path}} shape the web/mobile report views render —
+    ``forecast_path`` is one entry per forecasted year (``forecast_periods=5``
+    in ``_history_full_report``) with that year's real fiscal-year label
+    (e.g. "FY27E", from ``fiscal_year_labels`` — the same labeling
+    ``scripts/write_grd_calculation.py`` uses for the Excel multi-year
+    outlook, not a generic "Y1"/"Y2"), value, 95% CI, and YoY % versus the
+    prior year (the last *actual* value for year 1, chained
+    forecast-over-forecast after that). Skips metrics that turned out to lack
+    enough data even though the report as a whole ran."""
+    frame = load_fundamentals_frame(ticker)
+    _, year_label_fn = fiscal_year_labels(str(frame.index[-1]) if len(frame) else "")
     out: dict[str, dict] = {}
     for metric, sections in report.get("metrics", {}).items():
         fc = sections.get("forecast", {})
         if fc.get("insufficient_data"):
             continue
         trend = sections.get("growth_trend", {})
+        points, cis = fc["forecast"], fc["confidence_intervals"]
+        prev = float(frame[metric].dropna().iloc[-1]) if metric in frame.columns else None
+        path = []
+        for year, (val, ci) in enumerate(zip(points, cis, strict=True), start=1):
+            yoy_pct = (val - prev) / prev * 100 if prev else None
+            path.append({"year": year, "period": year_label_fn(year), "value": val,
+                        "ci_low": ci["low"], "ci_high": ci["high"], "yoy_pct": yoy_pct})
+            prev = val
         out[metric] = {
             "cagr_pct": trend.get("cagr_pct"),
             "latest_yoy_pct": trend.get("latest_yoy_pct"),
             "trend_direction": trend.get("trend_direction"),
-            "forecast_next": fc["forecast"][0],
-            "confidence_interval_95": fc["confidence_intervals"][0],
+            "forecast_next": points[0],
+            "confidence_interval_95": cis[0],
+            "forecast_path": path,
         }
     return out or None
 
@@ -151,11 +170,14 @@ def _forecast_bullets(forecast: dict) -> list[str]:
         label = metric.replace("_", " ")
         cagr = f.get("cagr_pct")
         cagr_txt = f"{cagr:.1f}% CAGR" if cagr is not None else "CAGR n/a"
-        ci = f["confidence_interval_95"]
+        path_txt = ", ".join(
+            f"{p['period']} {p['value']:,.0f}"
+            + (f" ({p['yoy_pct']:+.1f}% YoY)" if p["yoy_pct"] is not None else "")
+            for p in f["forecast_path"]
+        )
         bullets.append(
-            f"{label}: {cagr_txt}, trending {f['trend_direction']} — "
-            f"next-period forecast {f['forecast_next']:,.0f} "
-            f"(95% CI {ci['low']:,.0f}-{ci['high']:,.0f})"
+            f"{label}: {cagr_txt} historical, trending {f['trend_direction']} — "
+            f"5-year forecast: {path_txt}"
         )
     return bullets
 
@@ -186,7 +208,7 @@ def fundamental_analyst_node(state: AnalysisState) -> AnalysisState:
     narrative = get_llm().invoke(_PROMPT.format(ticker=ticker, metrics=metrics)).content
 
     fundamentals_report = _history_full_report(ticker)
-    forecast = _forecast_summary(fundamentals_report) if fundamentals_report else None
+    forecast = _forecast_summary(fundamentals_report, ticker) if fundamentals_report else None
     if forecast:
         notes = [*notes, *_forecast_bullets(forecast)]
     ratio_report = _ratio_report(ticker, _latest_price(state))
