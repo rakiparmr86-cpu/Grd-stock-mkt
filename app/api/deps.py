@@ -13,6 +13,7 @@ from app.models.user import User
 from app.repositories import (
     AgentDecisionRepository,
     AlertRepository,
+    ExceptionLogRepository,
     InputSourceRepository,
     ReportRepository,
     RuleRepository,
@@ -71,6 +72,10 @@ def get_alert_repo(db: DbSession) -> AlertRepository:
     return AlertRepository(db)
 
 
+def get_exception_log_repo(db: DbSession) -> ExceptionLogRepository:
+    return ExceptionLogRepository(db)
+
+
 UserRepo = Annotated[UserRepository, Depends(get_user_repo)]
 WatchlistRepo = Annotated[WatchlistRepository, Depends(get_watchlist_repo)]
 StrategyRepo = Annotated[StrategyRepository, Depends(get_strategy_repo)]
@@ -81,6 +86,7 @@ SignalRepo = Annotated[SignalRepository, Depends(get_signal_repo)]
 ReportRepo = Annotated[ReportRepository, Depends(get_report_repo)]
 AgentDecisionRepo = Annotated[AgentDecisionRepository, Depends(get_agent_decision_repo)]
 AlertRepo = Annotated[AlertRepository, Depends(get_alert_repo)]
+ExceptionLogRepo = Annotated[ExceptionLogRepository, Depends(get_exception_log_repo)]
 
 
 # ── auth ────────────────────────────────────────────────────────────────

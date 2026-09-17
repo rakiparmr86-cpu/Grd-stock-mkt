@@ -113,3 +113,24 @@ class AgentDecision(Base):
     )
 
     run: Mapped[AnalysisRun] = relationship(back_populates="decisions")
+
+
+class ExceptionLog(Base):
+    """A persisted record of an unexpected failure, from any part of the
+    system (API request, Celery task, websocket handler) — the actual store
+    behind the "unhandled exception" log line ``app.main``'s middleware has
+    always written to the text log but never persisted anywhere queryable.
+    Deliberately has no ``TimestampMixin``/``updated_at``: a log row is
+    write-once, and hard-deleting one (see ``ExceptionLogRepository``) is the
+    only mutation it ever gets."""
+
+    __tablename__ = "exception_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), index=True)  # api|websocket|run|input_source
+    message: Mapped[str] = mapped_column(Text)
+    traceback: Mapped[str | None] = mapped_column(Text)
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)  # e.g. ticker/run_id/path
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

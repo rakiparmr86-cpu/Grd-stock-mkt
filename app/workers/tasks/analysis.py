@@ -6,6 +6,7 @@ from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.repositories.strategy import StrategyRepository
 from app.repositories.watchlist import WatchlistRepository
+from app.services.exception_log import log_exception
 from app.services.orchestrator import analyze_ticker, close_run, open_run
 from app.workers.celery_app import celery_app
 from app.workers.tasks.notifications import send_report_alert
@@ -29,6 +30,7 @@ def analyze_ticker_task(self, ticker: str, strategy_id: int | None = None,
             })
     except Exception as exc:  # noqa: BLE001
         log.exception("analyze_ticker_task failed for %s", ticker)
+        log_exception("run", exc, context={"run_id": run_id, "ticker": ticker})
         if own_run:
             close_run(run_id, "error", str(exc))
         raise
@@ -63,6 +65,7 @@ def scan_watchlist(watchlist_id: int, strategy_id: int | None = None,
         })
     except Exception as exc:  # noqa: BLE001
         log.exception("scan_watchlist failed")
+        log_exception("run", exc, context={"run_id": run_id, "watchlist_id": watchlist_id})
         close_run(run_id, "error", str(exc))
         raise
     return {"run_id": run_id, "watchlist_id": watchlist_id, "scanned": len(tickers),

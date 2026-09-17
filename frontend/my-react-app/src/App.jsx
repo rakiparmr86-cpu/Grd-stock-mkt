@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import Activity from './Activity'
 import Analysis from './Analysis'
+import Exceptions from './Exceptions'
 import AuthForm from './AuthForm'
 import { API_BASE, AuthError, api, getToken, logout, me } from './api'
 import { GlobalLoader, TaskActivityProvider, useReportBusy } from './taskActivity'
@@ -505,6 +506,9 @@ function Console({ user, onSignOut }) {
           <button type="button" className={page === 'activity' ? 'on' : ''} onClick={() => setPage('activity')}>
             Activity
           </button>
+          <button type="button" className={page === 'exceptions' ? 'on' : ''} onClick={() => setPage('exceptions')}>
+            Exceptions
+          </button>
         </div>
 
         {page === 'analysis' && <Analysis onExpire={onSignOut} />}
@@ -520,6 +524,8 @@ function Console({ user, onSignOut }) {
         )}
 
         {page === 'activity' && <Activity onExpire={onSignOut} />}
+
+        {page === 'exceptions' && <Exceptions onExpire={onSignOut} />}
 
         <footer>
           Scheduled runs still come from Celery Beat + a worker. This page adds

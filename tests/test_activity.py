@@ -97,6 +97,20 @@ def test_run_started_and_finished_both_appear():
     assert finished["ticker"] == "RELIANCE"
     assert "outcome=ok" in finished["detail"]
 
+    # a completed run's "started" event must not still read "running" —
+    # that's what confused a user into thinking a long-finished run was stuck
+    started = next(e for e in out if e["type"] == "run_started")
+    assert started["status"] == "started"
+
+
+def test_unfinished_run_started_event_says_running():
+    runs = [_run(2, ticker="TCS", started="2026-01-01T10:00:00")]
+    out = list_activity(
+        _FakeRunRepo(runs), _FakeDecisionRepo([]), _FakeSignalRepo([]),
+        _FakeReportRepo([]), _FakeAlertRepo([]), _FakeInputSourceRepo([]),
+    )
+    assert out[0]["status"] == "running"
+
 
 def test_run_without_finish_has_no_finished_event():
     runs = [_run(2, ticker="TCS", started="2026-01-01T10:00:00")]

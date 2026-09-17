@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.api.deps import AgentDecisionRepo, RunRepo
 from app.models.history import AnalysisRun
 from app.schemas.history import RunOut
+from app.services.exception_log import log_exception
 
 router = APIRouter()
 
@@ -65,5 +66,6 @@ def trigger_run(payload: RunRequest) -> dict:
         })
     except Exception as exc:  # noqa: BLE001
         close_run(run_id, "error", str(exc))
+        log_exception("run", exc, context={"run_id": run_id, "ticker": payload.ticker})
         raise HTTPException(500, str(exc)) from exc
     return {"mode": "sync", "run_id": run_id, "result": result}

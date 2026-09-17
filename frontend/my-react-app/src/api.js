@@ -130,3 +130,11 @@ export function getTask(taskId) {
 export function listActivity(limit = 100) {
   return api(`/activity?limit=${limit}`)
 }
+
+// ── exceptions ────────────────────────────────────────────────────
+export function listExceptions(limit = 100) {
+  return api(`/exceptions?limit=${limit}`)
+}
+export function deleteException(id) {
+  return api(`/exceptions/${id}`, { method: 'DELETE' })
+}

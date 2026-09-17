@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.services.exception_log import log_exception
 
 log = get_logger(__name__)
 
@@ -48,9 +49,13 @@ async def log_unhandled_exceptions(request: Request, call_next):
     let Starlette produce its normal 500 / debug response."""
     try:
         return await call_next(request)
-    except Exception:
+    except Exception as exc:
         log.exception(
             "unhandled exception: %s %s", request.method, request.url.path
+        )
+        log_exception(
+            "api", exc,
+            context={"method": request.method, "path": request.url.path},
         )
         raise
 
@@ -82,5 +87,6 @@ async def ws_signals(ws: WebSocket) -> None:
             await ws.send_json({"type": "ack", "echo": msg})
     except WebSocketDisconnect:
         log.info("ws client disconnected")
-    except Exception:
+    except Exception as exc:
         log.exception("ws/signals handler error")
+        log_exception("websocket", exc, context={"path": "/ws/signals"})

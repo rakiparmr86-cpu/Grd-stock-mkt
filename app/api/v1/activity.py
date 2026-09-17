@@ -38,6 +38,13 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 def _run_events(runs) -> list[dict[str, Any]]:
+    """Each run contributes up to two *point-in-time* events — "started" and,
+    once it's done, "finished" — not a single row whose status stays live.
+    The "started" event's status reflects whether the run has since finished
+    (``"started"``) or is still genuinely in flight (``"running"``) — it
+    must not just say "running" forever, or a run from days ago reads as
+    stuck when it's actually long since complete (its "finished" event, with
+    the real outcome, is right there in the feed too)."""
     events = []
     for r in runs:
         ticker = (r.context or {}).get("ticker")
@@ -46,7 +53,7 @@ def _run_events(runs) -> list[dict[str, Any]]:
             "ticker": ticker, "run_id": r.id,
             "title": f"Run #{r.id} started ({ticker or 'unknown ticker'})",
             "detail": f"trigger={r.trigger}",
-            "status": "running",
+            "status": "running" if not r.finished_at else "started",
         })
         if r.finished_at:
             outcome = (r.context or {}).get("outcome")

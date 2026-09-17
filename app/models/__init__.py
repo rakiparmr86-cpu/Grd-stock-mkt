@@ -9,7 +9,7 @@ from app.models.config import (
     Watchlist,
     WatchlistItem,
 )
-from app.models.history import AgentDecision, Alert, AnalysisRun, Report, Signal
+from app.models.history import AgentDecision, Alert, AnalysisRun, ExceptionLog, Report, Signal
 from app.models.inputs import InputSource
 from app.models.market import Fundamental, IndicatorPoint, Instrument, OHLCV
 from app.models.user import User
@@ -33,4 +33,5 @@ __all__ = [
     "Report",
     "Alert",
     "AgentDecision",
+    "ExceptionLog",
 ]

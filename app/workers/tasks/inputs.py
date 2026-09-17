@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.repositories.input_source import InputSourceRepository
+from app.services.exception_log import log_exception
 from app.services.inputs.registry import get_connector
 from app.services.inputs.sink import run_connector
 from app.workers.celery_app import celery_app
@@ -35,6 +36,7 @@ def run_input_source(self, source_id: int) -> dict:
         error = "; ".join(stats.get("errors", []))[:2000] or None
     except Exception as exc:  # noqa: BLE001
         log.exception("input source %s failed", name)
+        log_exception("input_source", exc, context={"source_id": source_id, "name": name})
         stats, status, error = {}, "error", str(exc)
 
     with session_scope() as db:
@@ -57,6 +59,7 @@ def run_adhoc_connector(connector: str, config: dict, source_name: str) -> dict:
         status = "error" if stats.get("errors") else "ok"
     except Exception as exc:  # noqa: BLE001
         log.exception("ad-hoc connector %s failed", source_name)
+        log_exception("input_source", exc, context={"source_name": source_name})
         stats, status = {"errors": [str(exc)]}, "error"
     return {"source_name": source_name, "connector": connector,
             "status": status, "stats": stats}

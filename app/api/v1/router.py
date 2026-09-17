@@ -5,6 +5,7 @@ from app.api.v1 import (
     activity,
     analysis,
     auth,
+    exceptions,
     health,
     inputs,
     reports,
@@ -35,4 +36,7 @@ api_router.include_router(
 )
 api_router.include_router(
     activity.router, prefix="/activity", tags=["activity"], dependencies=_auth
+)
+api_router.include_router(
+    exceptions.router, prefix="/exceptions", tags=["exceptions"], dependencies=_auth
 )

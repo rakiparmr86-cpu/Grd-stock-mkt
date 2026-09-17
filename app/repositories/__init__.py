@@ -8,6 +8,7 @@ dependencies; Celery tasks / services build them directly from a
 from app.repositories.agent_decision import AgentDecisionRepository
 from app.repositories.alert import AlertRepository
 from app.repositories.base import BaseRepository
+from app.repositories.exception_log import ExceptionLogRepository
 from app.repositories.input_source import InputSourceRepository
 from app.repositories.instrument import InstrumentRepository
 from app.repositories.report import ReportRepository
@@ -31,6 +32,7 @@ __all__ = [
     "ReportRepository",
     "AgentDecisionRepository",
     "AlertRepository",
+    "ExceptionLogRepository",
     "ScheduleRepository",
     "InstrumentRepository",
 ]
