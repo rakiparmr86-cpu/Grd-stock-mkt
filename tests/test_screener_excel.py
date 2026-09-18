@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import datetime as dt
 
+import openpyxl
 import pandas as pd
 import pytest
 
-from app.services.inputs.screener_excel import load_prediction_inputs, transpose_statement_sheet
+from app.services.inputs.screener_excel import (
+    load_prediction_inputs,
+    read_statement_sheet_raw,
+    transpose_statement_sheet,
+)
 
 
 def _sheet(rows: list[list]) -> pd.DataFrame:
@@ -112,3 +117,58 @@ def test_load_prediction_inputs_missing_field_raises():
     raw = _sheet([["Historical / Current Metric", "Value"], ["TTM Sales", 100.0]])
     with pytest.raises(ValueError, match="TTM Net Profit"):
         load_prediction_inputs(raw)
+
+
+# ── read_statement_sheet_raw: stale/uncalculated formula caches ────────────
+def _workbook_with_stale_formula_caches(path) -> None:
+    """A minimal reproduction of a real bug found live: a Screener export
+    whose statement-sheet cells are all bare pointers to a hidden "Data
+    Sheet" tab (``='Data Sheet'!B16``), saved without Excel ever
+    recalculating them — so every cached value openpyxl/pandas would
+    normally read back is blank, even though "Data Sheet" itself holds real,
+    non-formula values."""
+    wb = openpyxl.Workbook()
+    data_sheet = wb.active
+    data_sheet.title = "Data Sheet"
+    # row 1: period headers; row 2: Sales values — arbitrary layout, mirrors
+    # the real template's "one row per line item, referenced by row number" shape
+    data_sheet.append(["", dt.datetime(2022, 3, 31), dt.datetime(2023, 3, 31)])
+    data_sheet.append(["", 100.0, 121.0])
+
+    ws = wb.create_sheet("Profit & Loss")
+    ws.append(["DEMO CO LTD"])
+    ws.append(["Narration", "='Data Sheet'!B1", "='Data Sheet'!C1"])
+    ws.append(["Sales", "='Data Sheet'!B2", "='Data Sheet'!C2"])
+    wb.save(path)
+
+
+def test_read_statement_sheet_raw_resolves_stale_formula_caches(tmp_path):
+    path = tmp_path / "stale.xlsx"
+    _workbook_with_stale_formula_caches(path)
+
+    # sanity check: a plain read sees nothing (this is the bug being fixed)
+    plain = pd.read_excel(path, sheet_name="Profit & Loss", header=None)
+    with pytest.raises(ValueError, match="no period columns"):
+        transpose_statement_sheet(plain)
+
+    raw = read_statement_sheet_raw(path, "Profit & Loss")
+    wide = transpose_statement_sheet(raw)
+    assert list(wide.index) == ["2022-03", "2023-03"]
+    assert wide.loc["2022-03", "Sales"] == 100.0
+    assert wide.loc["2023-03", "Sales"] == 121.0
+
+
+def test_read_statement_sheet_raw_leaves_non_pointer_formulas_alone(tmp_path):
+    """A formula more complex than a bare cell pointer (arithmetic, a
+    function call) is genuinely out of scope — it stays blank rather than
+    being (incorrectly) evaluated."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Label", "Value"])
+    ws.append(["Total", "=1+1"])
+    path = tmp_path / "formula.xlsx"
+    wb.save(path)
+
+    raw = read_statement_sheet_raw(path, "Sheet1")
+    assert pd.isna(raw.iat[1, 1])

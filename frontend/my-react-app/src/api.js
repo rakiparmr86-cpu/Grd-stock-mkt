@@ -126,6 +126,15 @@ export function getTask(taskId) {
   return api(`/tasks/${taskId}`)
 }
 
+export function uploadsTracker(limit = 100) {
+  return api(`/inputs/uploads-tracker?limit=${limit}`)
+}
+
+// ── system health ─────────────────────────────────────────────────
+export function healthServices() {
+  return api('/health/services')
+}
+
 // ── activity feed ─────────────────────────────────────────────────
 export function listActivity(limit = 100) {
   return api(`/activity?limit=${limit}`)

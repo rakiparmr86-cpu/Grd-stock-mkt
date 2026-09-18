@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.api.deps import DbSession, InputSourceRepo
+from app.api.deps import DbSession, IngestionRunRepo, InputSourceRepo, RunRepo
 from app.models.inputs import InputSource
 from app.schemas.inputs import (
     CrawlRequest,
@@ -33,6 +34,49 @@ def connectors() -> list[dict]:
 @router.get("", response_model=list[InputSourceOut])
 def list_sources(sources: InputSourceRepo) -> list[InputSource]:
     return sources.list_all()
+
+
+@router.get("/uploads-tracker")
+def uploads_tracker(
+    ingestion_runs: IngestionRunRepo, runs: RunRepo, limit: int = 100,
+) -> dict[str, Any]:
+    """Every upload/ingestion (ad-hoc or saved-source), most recent first,
+    with an ``analyzed`` flag answering the question this project's users
+    keep hitting: "I uploaded a file — did that data ever actually reach an
+    Analysis run?" ``analyzed`` is true only when an Analysis run for the
+    same ticker started *after* this ingestion finished — a run from before
+    the upload doesn't count, since it couldn't have seen this data.
+    """
+    recent = ingestion_runs.list_recent(limit)
+    latest_run_started_by_ticker: dict[str, datetime] = {}
+    for r in runs.list_recent(500):
+        ticker = (r.context or {}).get("ticker")
+        if not ticker or not r.started_at:
+            continue
+        ticker = ticker.upper()
+        prev = latest_run_started_by_ticker.get(ticker)
+        if prev is None or r.started_at > prev:
+            latest_run_started_by_ticker[ticker] = r.started_at
+
+    items = []
+    analyzed_count = 0
+    for r in recent:
+        analyzed = False
+        if r.ticker and r.finished_at:
+            latest = latest_run_started_by_ticker.get(r.ticker.upper())
+            analyzed = bool(latest and latest >= r.finished_at)
+        analyzed_count += analyzed
+        items.append({
+            "id": r.id, "source_name": r.source_name, "connector": r.connector,
+            "ticker": r.ticker, "status": r.status, "stats": r.stats, "error": r.error,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "analyzed": analyzed,
+        })
+    return {
+        "total": len(items), "analyzed": analyzed_count,
+        "pending": len(items) - analyzed_count, "items": items,
+    }
 
 
 @router.post("", response_model=InputSourceOut, status_code=201)

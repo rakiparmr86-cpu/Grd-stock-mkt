@@ -9,6 +9,7 @@ from app.repositories.agent_decision import AgentDecisionRepository
 from app.repositories.alert import AlertRepository
 from app.repositories.base import BaseRepository
 from app.repositories.exception_log import ExceptionLogRepository
+from app.repositories.ingestion_run import IngestionRunRepository
 from app.repositories.input_source import InputSourceRepository
 from app.repositories.instrument import InstrumentRepository
 from app.repositories.report import ReportRepository
@@ -33,6 +34,7 @@ __all__ = [
     "AgentDecisionRepository",
     "AlertRepository",
     "ExceptionLogRepository",
+    "IngestionRunRepository",
     "ScheduleRepository",
     "InstrumentRepository",
 ]

@@ -11,11 +11,19 @@ correct call so it can't regress the same way again.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("qdrant_client")
 
+from qdrant_client.http.exceptions import UnexpectedResponse  # noqa: E402
+
 from app.services.rag.vectorstore import QdrantStore  # noqa: E402
+
+
+def _unexpected_response(status_code: int) -> UnexpectedResponse:
+    return UnexpectedResponse(status_code=status_code, reason_phrase="", content=b"", headers={})
 
 
 class _FakePoint:
@@ -89,3 +97,87 @@ def test_search_no_filter_when_no_args():
     store, fake = _store_with_fake_client([])
     store.search([0.0] * 4)
     assert fake.last_call["query_filter"] is None
+
+
+class _FakeCollectionsClient:
+    """Stands in for QdrantClient in ensure_collection() tests. ``upsert()``
+    calls ``ensure_collection()`` on every call (not once), so under real
+    concurrent load two calls can each see the collection missing and both
+    try to create it — the loser gets a 409 from Qdrant even though the
+    collection ends up exactly as intended. This must be swallowed, not
+    surfaced as an ingestion error."""
+
+    def __init__(self, *, existing_names=(), create_raises=None, index_raises=None):
+        self._existing = [SimpleNamespace(name=n) for n in existing_names]
+        self._create_raises = create_raises
+        self._index_raises = index_raises
+        self.create_collection_calls = 0
+        self.create_payload_index_calls = 0
+
+    def get_collections(self):
+        return SimpleNamespace(collections=self._existing)
+
+    def create_collection(self, **kwargs):
+        self.create_collection_calls += 1
+        if self._create_raises is not None:
+            raise self._create_raises
+
+    def create_payload_index(self, *a, **kwargs):
+        self.create_payload_index_calls += 1
+        if self._index_raises is not None:
+            raise self._index_raises
+
+
+def test_ensure_collection_skips_create_when_already_listed():
+    store = QdrantStore.__new__(QdrantStore)
+    store.collection = "grd_documents"
+    store.dim = 4
+    store.client = _FakeCollectionsClient(existing_names=["grd_documents"])
+
+    store.ensure_collection()  # must not raise, must not attempt to create
+    assert store.client.create_collection_calls == 0
+
+
+def test_ensure_collection_creates_when_missing():
+    store = QdrantStore.__new__(QdrantStore)
+    store.collection = "grd_documents"
+    store.dim = 4
+    store.client = _FakeCollectionsClient(existing_names=[])
+
+    store.ensure_collection()
+    assert store.client.create_collection_calls == 1
+    assert store.client.create_payload_index_calls == 3  # ticker, doc_type, source_id
+
+
+def test_ensure_collection_swallows_409_lost_create_race():
+    store = QdrantStore.__new__(QdrantStore)
+    store.collection = "grd_documents"
+    store.dim = 4
+    store.client = _FakeCollectionsClient(
+        existing_names=[], create_raises=_unexpected_response(409),
+    )
+
+    store.ensure_collection()  # must not raise — the end state is what we wanted anyway
+
+
+def test_ensure_collection_reraises_non_409_create_failure():
+    store = QdrantStore.__new__(QdrantStore)
+    store.collection = "grd_documents"
+    store.dim = 4
+    store.client = _FakeCollectionsClient(
+        existing_names=[], create_raises=_unexpected_response(500),
+    )
+
+    with pytest.raises(UnexpectedResponse):
+        store.ensure_collection()
+
+
+def test_ensure_collection_swallows_409_on_payload_index_too():
+    store = QdrantStore.__new__(QdrantStore)
+    store.collection = "grd_documents"
+    store.dim = 4
+    store.client = _FakeCollectionsClient(
+        existing_names=[], index_raises=_unexpected_response(409),
+    )
+
+    store.ensure_collection()  # must not raise

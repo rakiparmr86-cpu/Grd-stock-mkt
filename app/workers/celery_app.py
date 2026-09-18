@@ -13,6 +13,7 @@ from celery.signals import setup_logging, task_failure
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.services.exception_log import log_exception
 from app.workers.beat_schedule import build_beat_schedule
 
 log = get_logger(__name__)
@@ -52,9 +53,17 @@ def _use_app_logging(**_kwargs) -> None:
 @task_failure.connect
 def _log_task_failure(sender=None, task_id=None, exception=None, einfo=None, **_kw) -> None:
     """Guarantee every failed task writes a traceback to the exception log,
-    even if the task body didn't call ``log.exception``."""
+    even if the task body didn't call ``log.exception`` (or ``log_exception``)
+    itself — a global safety net alongside the explicit calls already in each
+    task's own ``except`` block, not a replacement for them (this fires
+    *after* a task's own handling re-raises, so it never runs for a task that
+    catches its own failure without re-raising)."""
+    task_name = getattr(sender, "name", sender)
     logging.getLogger("celery.task").error(
-        "task %s[%s] failed: %r",
-        getattr(sender, "name", sender), task_id, exception,
+        "task %s[%s] failed: %r", task_name, task_id, exception,
         exc_info=einfo.exc_info if einfo is not None else True,
     )
+    if exception is not None:
+        log_exception(
+            "celery_task", exception, context={"task": task_name, "task_id": task_id},
+        )

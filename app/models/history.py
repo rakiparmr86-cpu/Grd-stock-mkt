@@ -115,6 +115,39 @@ class AgentDecision(Base):
     run: Mapped[AnalysisRun] = relationship(back_populates="decisions")
 
 
+class IngestionRun(Base):
+    """One connector execution — whether ad-hoc (an upload with
+    mode=ingest_once, or a "crawl now") or from a saved ``InputSource`` —
+    tracked from the moment it's queued.
+
+    This is what makes an in-progress or one-off ingest show up in the
+    Activity feed at all: ``InputSource`` only ever remembers its *latest*
+    run (``last_run_at``/``last_status``), and an ad-hoc run has no
+    ``InputSource`` row to begin with. A row here starts at ``status =
+    "running"`` the moment the Celery task begins and gets a ``finished_at``
+    + final status once it completes, so the feed can show real progress
+    instead of only ever seeing a run after the fact.
+    """
+
+    __tablename__ = "ingestion_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    input_source_id: Mapped[int | None] = mapped_column(
+        ForeignKey("input_sources.id", ondelete="SET NULL")
+    )
+    source_name: Mapped[str] = mapped_column(String(255))
+    connector: Mapped[str] = mapped_column(String(32))
+    ticker: Mapped[str | None] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running|ok|error
+    stats: Mapped[dict] = mapped_column(JSONB, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ExceptionLog(Base):
     """A persisted record of an unexpected failure, from any part of the
     system (API request, Celery task, websocket handler) — the actual store

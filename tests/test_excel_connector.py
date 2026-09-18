@@ -99,3 +99,29 @@ def test_default_kind_is_rows_for_fundamental_mode(tmp_path):
         "sheet": "Profit & Loss", "ticker": "DEMO",
     })
     assert conn.default_kind == ConnectorKind.ROWS
+
+
+def test_narration_row_with_blank_period_headers_fails_loudly(tmp_path):
+    """A real bug found live: a Screener export whose period-header cells are
+    formulas (``='Data Sheet'!B16``) reading back blank because the copy of
+    the file being uploaded was never recalculated by Excel before being
+    saved. Must not silently fall through to flat-table parsing (which
+    would import 0 rows with an "ok" status and no indication why) —
+    ``Narration`` was found, so this needs a loud, actionable error instead."""
+    path = tmp_path / "stale_formulas.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Profit & Loss"
+    ws.append(["DEMO CO LTD"])
+    # only the non-period trailing/scenario columns have a value — exactly
+    # what a workbook with uncalculated formula caches looks like when read
+    ws.append(["Narration", None, None, "Trailing", "Best Case", "Worst Case"])
+    ws.append(["Sales", 100, 110, 140, 150, 130])
+    wb.save(path)
+
+    conn = ExcelConnector({
+        "path": str(path), "mode": "rows", "row_kind": "fundamental",
+        "sheet": "Profit & Loss", "ticker": "DEMO",
+    })
+    with pytest.raises(ConfigError, match="recalculate"):
+        next(iter(conn.fetch()))

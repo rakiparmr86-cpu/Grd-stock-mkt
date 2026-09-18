@@ -10,7 +10,8 @@ const TYPE_LABELS = {
   signal: 'Signal',
   report: 'Report',
   alert: 'Alert',
-  input_source: 'Input source',
+  ingestion_started: 'Ingest started',
+  ingestion_finished: 'Ingest finished',
 }
 
 function fmtTime(iso) {

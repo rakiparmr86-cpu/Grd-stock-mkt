@@ -81,6 +81,8 @@ def connector_for_path(
         cfg: dict = {"paths": [str(p)]}
         if doc_type:
             cfg["doc_type"] = doc_type
+        if ticker:
+            cfg["ticker"] = ticker
         if name == "image_ocr":
             cfg["backend"] = settings.ocr_backend
         return name, "docs", cfg
@@ -103,4 +105,6 @@ def connector_for_path(
     cfg = {"path": str(p), "mode": "docs"}
     if doc_type:
         cfg["doc_type"] = doc_type
+    if ticker:
+        cfg["ticker"] = ticker
     return name, "docs", cfg

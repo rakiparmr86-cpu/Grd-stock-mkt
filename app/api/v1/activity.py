@@ -1,5 +1,5 @@
 """Unified activity feed — merges recent rows from every history table
-(analysis runs, agent decisions, signals, reports, alerts, input-source runs)
+(analysis runs, agent decisions, signals, reports, alerts, ingestion runs)
 into one time-sorted list, so the frontend has a single place to show "what
 is going on in the project right now" instead of a different tab per table.
 
@@ -7,11 +7,13 @@ Polled, not pushed: there's no websocket/SSE infrastructure in this project,
 so "real-time" here means the frontend re-fetches this endpoint on an
 interval (same pattern ``TaskWatcher`` already uses for task polling).
 
-One real limitation, called out rather than hidden: ``InputSource`` only
-ever stores its *latest* run (``last_run_at``/``last_status``/``last_stats``)
-— there's no per-run history table for input sources the way there is for
-analysis runs. So an input source contributes at most one activity entry
-(its most recent run), not a full history, until such a table exists.
+Ingestion (uploads, crawls, saved-source runs) is tracked via
+``IngestionRun`` rather than reading ``InputSource.last_run_at`` directly —
+that field only ever remembers the *latest* run and doesn't exist at all for
+an ad-hoc upload (mode=ingest_once), so it used to be the one thing that
+never showed up here while in progress or after a one-off run. IngestionRun
+covers both cases with a real "running" status while the Celery task is
+still executing.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from fastapi import APIRouter
 from app.api.deps import (
     AgentDecisionRepo,
     AlertRepo,
-    InputSourceRepo,
+    IngestionRunRepo,
     ReportRepo,
     RunRepo,
     SignalRepo,
@@ -120,30 +122,41 @@ def _alert_events(alerts) -> list[dict[str, Any]]:
     } for a in alerts]
 
 
-def _input_source_events(sources) -> list[dict[str, Any]]:
+def _ingestion_events(runs) -> list[dict[str, Any]]:
+    """Same "started" (point-in-time) / "finished" (final status) pattern as
+    ``_run_events`` — a still-running ingest genuinely shows ``"running"``;
+    once it completes, that same "started" event flips to ``"started"`` so
+    it doesn't read as stuck, and a "finished" event with the real
+    ok/error status and stats appears alongside it."""
     events = []
-    for s in sources:
-        if not s.last_run_at:
-            continue
-        detail = f"connector={s.connector}"
-        if s.last_stats:
-            detail += f", {s.last_stats}"
-        if s.last_error:
-            detail += f", error={s.last_error}"
+    for r in runs:
         events.append({
-            "id": f"input:{s.id}", "type": "input_source", "at": _iso(s.last_run_at),
+            "id": f"ingest-start:{r.id}", "type": "ingestion_started", "at": _iso(r.started_at),
             "ticker": None, "run_id": None,
-            "title": f"Input source \"{s.name}\" — {s.last_status or 'unknown'}",
-            "detail": detail,
-            "status": s.last_status,
+            "title": f"Ingest \"{r.source_name}\" started",
+            "detail": f"connector={r.connector}",
+            "status": "running" if not r.finished_at else "started",
         })
+        if r.finished_at:
+            detail = f"connector={r.connector}"
+            if r.stats:
+                detail += f", {r.stats}"
+            if r.error:
+                detail += f", error={r.error}"
+            events.append({
+                "id": f"ingest-finish:{r.id}", "type": "ingestion_finished",
+                "at": _iso(r.finished_at), "ticker": None, "run_id": None,
+                "title": f"Ingest \"{r.source_name}\" finished — {r.status}",
+                "detail": detail,
+                "status": r.status,
+            })
     return events
 
 
 @router.get("")
 def list_activity(
     runs: RunRepo, decisions: AgentDecisionRepo, signals: SignalRepo,
-    reports: ReportRepo, alerts: AlertRepo, sources: InputSourceRepo,
+    reports: ReportRepo, alerts: AlertRepo, ingestion_runs: IngestionRunRepo,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Every event type's own query is capped at ``limit`` before merging, so
@@ -159,7 +172,7 @@ def list_activity(
         *_signal_events(signals.list_filtered(limit=limit)),
         *_report_events(reports.list_filtered(limit=limit)),
         *_alert_events(alerts.list(order_by=alerts.model.created_at.desc(), limit=limit)),
-        *_input_source_events(sources.list_all()),
+        *_ingestion_events(ingestion_runs.list_recent(limit)),
     ]
     events = [e for e in events if e["at"] is not None]
     events.sort(key=lambda e: e["at"], reverse=True)

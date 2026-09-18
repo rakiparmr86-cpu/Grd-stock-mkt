@@ -14,6 +14,7 @@ from app.repositories import (
     AgentDecisionRepository,
     AlertRepository,
     ExceptionLogRepository,
+    IngestionRunRepository,
     InputSourceRepository,
     ReportRepository,
     RuleRepository,
@@ -76,6 +77,10 @@ def get_exception_log_repo(db: DbSession) -> ExceptionLogRepository:
     return ExceptionLogRepository(db)
 
 
+def get_ingestion_run_repo(db: DbSession) -> IngestionRunRepository:
+    return IngestionRunRepository(db)
+
+
 UserRepo = Annotated[UserRepository, Depends(get_user_repo)]
 WatchlistRepo = Annotated[WatchlistRepository, Depends(get_watchlist_repo)]
 StrategyRepo = Annotated[StrategyRepository, Depends(get_strategy_repo)]
@@ -87,6 +92,7 @@ ReportRepo = Annotated[ReportRepository, Depends(get_report_repo)]
 AgentDecisionRepo = Annotated[AgentDecisionRepository, Depends(get_agent_decision_repo)]
 AlertRepo = Annotated[AlertRepository, Depends(get_alert_repo)]
 ExceptionLogRepo = Annotated[ExceptionLogRepository, Depends(get_exception_log_repo)]
+IngestionRunRepo = Annotated[IngestionRunRepository, Depends(get_ingestion_run_repo)]
 
 
 # ── auth ────────────────────────────────────────────────────────────────

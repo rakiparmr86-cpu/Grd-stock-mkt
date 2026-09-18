@@ -14,9 +14,17 @@ log = get_logger(__name__)
 try:  # keep this module importable without the optional dep installed
     from qdrant_client import QdrantClient
     from qdrant_client.http import models as qm
+    from qdrant_client.http.exceptions import UnexpectedResponse
 except ModuleNotFoundError:  # pragma: no cover
     QdrantClient = None  # type: ignore[assignment,misc]
     qm = None  # type: ignore[assignment]
+    UnexpectedResponse = None  # type: ignore[assignment,misc]
+
+# qdrant-client's own default (5s) is too short for a cold local Qdrant under
+# Docker/WSL2, where disk I/O is slow enough that plain collection creation
+# can itself take a few seconds — that alone was enough to make every upload
+# fail with "timed out" on its first hit after a container restart.
+_DEFAULT_TIMEOUT_S = 30.0
 
 
 @dataclass
@@ -42,22 +50,42 @@ class QdrantStore:
         self.client = QdrantClient(
             url=url or settings.qdrant_url,
             api_key=(api_key or settings.qdrant_api_key) or None,
+            timeout=_DEFAULT_TIMEOUT_S,
         )
 
     def ensure_collection(self) -> None:
+        """Idempotent by design, not just by the existence check up front:
+        ``upsert()`` calls this on *every* call, so under load (several docs
+        from one upload, each triggering their own call) two calls can each
+        see the collection missing and both attempt to create it — the
+        loser gets a 409 from Qdrant, not a real failure, since the
+        collection ends up exactly as intended either way. Treat that 409
+        as success rather than letting it surface as an ingestion error.
+        """
         existing = {c.name for c in self.client.get_collections().collections}
         if self.collection in existing:
             return
         log.info("creating Qdrant collection %s (dim=%d)", self.collection, self.dim)
-        self.client.create_collection(
-            collection_name=self.collection,
-            vectors_config=qm.VectorParams(size=self.dim, distance=qm.Distance.COSINE),
-        )
-        for field in ("ticker", "doc_type", "source_id"):
-            self.client.create_payload_index(
-                self.collection, field_name=field,
-                field_schema=qm.PayloadSchemaType.KEYWORD,
+        try:
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config=qm.VectorParams(size=self.dim, distance=qm.Distance.COSINE),
             )
+        except UnexpectedResponse as exc:
+            if exc.status_code != 409:
+                raise
+            log.info("Qdrant collection %s already exists (lost a create race) — continuing",
+                     self.collection)
+            return
+        for field in ("ticker", "doc_type", "source_id"):
+            try:
+                self.client.create_payload_index(
+                    self.collection, field_name=field,
+                    field_schema=qm.PayloadSchemaType.KEYWORD,
+                )
+            except UnexpectedResponse as exc:
+                if exc.status_code != 409:
+                    raise
 
     def upsert(
         self,

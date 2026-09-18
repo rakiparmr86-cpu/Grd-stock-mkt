@@ -33,7 +33,7 @@ from app.services.inputs.base import (
     DocItem,
     InputConnector,
 )
-from app.services.inputs.screener_excel import transpose_statement_sheet
+from app.services.inputs.screener_excel import read_statement_sheet_raw, transpose_statement_sheet
 from app.services.market_data.normalization import normalize_ohlcv
 
 log = get_logger(__name__)
@@ -55,18 +55,48 @@ def _screener_fundamental_records(path: Path, sheet: str, ticker: str | None) ->
     (not an error) when the sheet doesn't have that shape, so the caller can
     fall back to treating it as an already-tidy fundamentals table.
 
-    Raises ``ConfigError`` when the sheet *is* Screener-shaped but no ticker
-    was given — without one there's no way to say whose data this is, and
-    silently falling through to the flat-table path would parse the title
-    row as a header and produce garbage that ``upsert_fundamentals`` then
-    drops row-by-row for lacking a ticker/period, i.e. a file that visibly
-    "worked" but silently imported nothing.
+    Raises ``ConfigError`` in two cases where falling through to the flat-table
+    path would silently import nothing instead of saying why:
+
+    * no ticker was given — without one there's no way to say whose data
+      this is
+    * a 'Narration' row was found but it has no usable period columns even
+      after retrying with formula-reference resolution (see
+      ``read_statement_sheet_raw``) — genuinely not recoverable, e.g. a
+      formula more complex than a bare cell pointer
     """
     raw = pd.read_excel(path, sheet_name=sheet, header=None)
     try:
         wide = transpose_statement_sheet(raw)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        if "could not find" in str(exc):
+            return None  # genuinely not Screener-shaped — fall through
+
+        # The period headers are usually bare formulas pointing at a hidden
+        # "Data Sheet" tab (='Data Sheet'!B16, ...) — if this copy of the
+        # file was saved without Excel recalculating first, their cached
+        # values are blank even though the pointed-to cells are fine. Retry
+        # resolving those pointers directly before giving up.
+        try:
+            raw = read_statement_sheet_raw(path, sheet)
+            wide = transpose_statement_sheet(raw)
+        except ValueError:
+            pass
+        else:
+            return _screener_rows_from_wide(wide, ticker, sheet)
+
+        raise ConfigError(
+            f"sheet {sheet!r} has a 'Narration' row but no usable period columns — "
+            "this usually means the period-header cells are formulas (e.g. "
+            "='Data Sheet'!B16) whose cached values are blank because the file "
+            "wasn't recalculated before being saved. Open it in Excel, let it "
+            "recalculate (it does this automatically on open, or press Ctrl+Alt+F9 "
+            "to force it), save, and re-upload that copy."
+        ) from exc
+    return _screener_rows_from_wide(wide, ticker, sheet)
+
+
+def _screener_rows_from_wide(wide: pd.DataFrame, ticker: str | None, sheet: str) -> list[dict]:
     if not ticker:
         raise ConfigError(
             f"sheet {sheet!r} looks like a Screener-style statement (has a 'Narration' "

@@ -234,6 +234,31 @@ def test_connector_for_path_rejects_unknown():
         connector_for_path("notes.docx")
 
 
+@pytest.mark.parametrize(
+    "fname,kwargs",
+    [
+        ("x.pdf", {}),
+        ("scan.png", {}),
+        ("b.xlsx", {}),  # excel_mode default = docs
+    ],
+)
+def test_connector_for_path_docs_mode_carries_ticker_through(fname, kwargs):
+    """A real bug found live: the Ticker field was silently dropped for every
+    docs-mode upload (PDF, image, and Excel-as-documents — i.e. the default
+    Excel mode) even though the underlying connectors (image_ocr, and
+    ExcelConnector's own docs branch) already know how to tag a document
+    with a ticker — only this config-building step failed to pass it
+    through, so the upload tracker could never show these as "analyzed"
+    no matter what the user typed into the Ticker field."""
+    _, _, cfg = connector_for_path(fname, ticker="RELIANCE", **kwargs)
+    assert cfg.get("ticker") == "RELIANCE"
+
+
+def test_connector_for_path_docs_mode_no_ticker_key_when_not_given():
+    _, _, cfg = connector_for_path("x.pdf")
+    assert "ticker" not in cfg
+
+
 def test_save_upload_writes_file(tmp_path, monkeypatch):
     from app.core.config import settings
 

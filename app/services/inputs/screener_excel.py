@@ -11,12 +11,68 @@ anything about tickers, storage, or the rest of the input-connector layer.
 from __future__ import annotations
 
 import datetime as dt
+import re
+from pathlib import Path
 
+import openpyxl
 import pandas as pd
 
 # Screener appends forward-looking / scenario columns after the real periods —
 # these aren't a period at all, so drop them rather than treat them as one.
 _IGNORE_TRAILING_COLS = {"trailing", "best case", "worst case"}
+
+# Every cell on a Screener statement sheet (Profit & Loss / Quarters /
+# Balance Sheet / Cash Flow) is a bare pointer to one cell on the hidden
+# "Data Sheet" tab, e.g. ``='Data Sheet'!B16`` — not a computed expression.
+_SIMPLE_CELL_REF = re.compile(r"^='?([^'!]+?)'?!(\$?[A-Za-z]+\$?\d+)$")
+
+
+def _resolve_simple_ref(formula: object, wb_values: openpyxl.Workbook) -> object:
+    """Resolve a bare cross-sheet cell reference formula against a workbook
+    already loaded with ``data_only=True``. Returns ``None`` for anything
+    that isn't exactly that shape (arithmetic, functions, ranges) — those are
+    genuinely out of scope; only Screener's own pointer-only cells are
+    handled here."""
+    if not isinstance(formula, str):
+        return None
+    m = _SIMPLE_CELL_REF.match(formula.strip())
+    if not m:
+        return None
+    sheet_name, cell_ref = m.group(1), m.group(2).replace("$", "")
+    if sheet_name not in wb_values.sheetnames:
+        return None
+    return wb_values[sheet_name][cell_ref].value
+
+
+def read_statement_sheet_raw(path: Path, sheet: str) -> pd.DataFrame:
+    """Like ``pd.read_excel(path, sheet_name=sheet, header=None)``, except a
+    blank *cached* formula result is recovered from the cell it directly
+    points to, elsewhere in the same workbook, when possible.
+
+    Screener's statement sheets are built entirely from formulas referencing
+    a hidden "Data Sheet" tab. If whatever last saved a particular copy of
+    the file didn't let Excel recalculate first, every one of those cached
+    results comes back blank — even though the underlying "Data Sheet" data
+    they point to is still there and unaffected (it holds real values, not
+    formulas). A plain ``pd.read_excel`` only ever sees the blank cache;
+    this recovers what a person opening the file in Excel would see, without
+    needing a full formula-evaluation engine — only exact single-cell
+    pointers are resolved.
+    """
+    wb_values = openpyxl.load_workbook(path, data_only=True)
+    wb_formulas = openpyxl.load_workbook(path, data_only=False)
+    ws_values, ws_formulas = wb_values[sheet], wb_formulas[sheet]
+
+    rows = []
+    for r in range(1, ws_values.max_row + 1):
+        row = []
+        for c in range(1, ws_values.max_column + 1):
+            value = ws_values.cell(r, c).value
+            if value is None:
+                value = _resolve_simple_ref(ws_formulas.cell(r, c).value, wb_values)
+            row.append(value)
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def transpose_statement_sheet(raw: pd.DataFrame) -> pd.DataFrame:
