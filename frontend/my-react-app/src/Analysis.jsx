@@ -262,7 +262,7 @@ function RunDetail({ run, onExpire }) {
                         View HTML
                       </a>
                     )}
-                    {(r.payload?.fundamentals_report || r.payload?.ratio_report) && (
+                    {(r.payload?.fundamentals_report || r.payload?.ratio_report || r.payload?.document_analysis) && (
                       <a className="ghost-link" href={reportExcelUrl(r.id)}>
                         Download Excel
                       </a>

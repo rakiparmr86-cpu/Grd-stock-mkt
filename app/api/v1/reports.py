@@ -50,6 +50,9 @@ def get_report_excel(report_id: int, reports: ReportRepo) -> StreamingResponse:
     report = reports.get(report_id)
     if not report:
         raise HTTPException(404, "report not found")
+    doc = (report.payload or {}).get("document_analysis")
+    if doc:
+        return _document_excel(doc, report.title)
     data_driven = (report.payload or {}).get("fundamentals_report")
     ratio_report = (report.payload or {}).get("ratio_report")
     if not data_driven and not ratio_report:
@@ -71,4 +74,36 @@ def get_report_excel(report_id: int, reports: ReportRepo) -> StreamingResponse:
     return StreamingResponse(
         buf, media_type=_XLSX_MIME,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _document_excel(doc: dict, title: str) -> StreamingResponse:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Document analysis", title])
+    for k, v in doc.get("overview", {}).items():
+        ws.append([k, v])
+    ws.append([])
+    ws.append(["Key figure lines"])
+    for ln in doc.get("key_lines", []):
+        ws.append([ln])
+    ws.append([])
+    ws.append(["Term", "Count"])
+    for k in doc.get("keywords", []):
+        ws.append([k["term"], k["count"]])
+    cols = ["label", "count", "first", "latest", "min", "max", "mean", "change_pct"]
+    for sh in doc.get("sheets", []):
+        # Excel sheet names: max 31 chars, no bracket/colon/slash characters
+        name = "".join(c for c in sh["name"].split("—")[-1] if c not in "[]:*?/\\").strip()[:31]
+        sws = wb.create_sheet(name or f"sheet{len(wb.sheetnames)}")
+        sws.append(cols)
+        for m in sh["metrics"]:
+            sws.append([m.get(c) for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf, media_type=_XLSX_MIME,
+        headers={"Content-Disposition": 'attachment; filename="document_analysis.xlsx"'},
     )

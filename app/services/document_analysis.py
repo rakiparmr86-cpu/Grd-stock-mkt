@@ -18,13 +18,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agents.llm import get_llm
+from app.agents.llm import EchoLLM, get_llm
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.models.history import AgentDecision, Report
 from app.repositories.agent_decision import AgentDecisionRepository
 from app.repositories.ingestion_run import IngestionRunRepository
 from app.repositories.report import ReportRepository
+from app.services.document_stats import _fmt, analyze_text, report_sections
 from app.services.rag.vectorstore import get_store
 from app.services.reports.renderer import render_report
 
@@ -98,28 +99,44 @@ def analyze_document(ingestion_run_id: int, *, run_id: int) -> dict[str, Any]:
         source_name = ingestion_run.source_name
         text = _document_text(ingestion_run)
 
-    narrative = get_llm().invoke(
-        _PROMPT.format(filename=source_name, text=text[:_MAX_CHARS])
-    ).content
+    stats = analyze_text(text)
+    sections = report_sections(stats)
+    narrative = ""
+    llm = get_llm()
+    if not isinstance(llm, EchoLLM):
+        try:
+            narrative = llm.invoke(
+                _PROMPT.format(filename=source_name, text=text[:_MAX_CHARS])
+            ).content
+            sections.insert(0, {"heading": "Summary (LLM)", "body": narrative, "bullets": []})
+        except Exception as exc:  # noqa: BLE001 - local analysis still stands
+            log.warning("LLM summary skipped for %s: %s", source_name, exc)
+
+    top = [m for sh in stats["sheets"] for m in sh["metrics"][:2]][:3]
+    summary = narrative[:280] or "; ".join(
+        f"{m['label']} {_fmt(m['first'])}→{_fmt(m['latest'])}" for m in top
+    ) or f"{stats['overview']['words']:,} words analyzed locally"
 
     payload = {
         "title": f"Document analysis — {source_name}",
         "run_id": run_id,
-        "sections": [{"heading": "Document analysis", "body": narrative, "bullets": []}],
+        "sections": sections,
+        "document_analysis": stats,
     }
     rendered = render_report(payload, slug="document")
 
     with session_scope() as db:
         report = ReportRepository(db).add(Report(
             run_id=run_id, ticker=None, title=payload["title"],
-            summary=narrative[:280], html_path=rendered.get("html_path"),
+            summary=summary, html_path=rendered.get("html_path"),
             payload=payload,
         ))
         report_id = report.id
         AgentDecisionRepository(db).add(AgentDecision(
             run_id=run_id, agent="document_analyst", step=0,
             input={"ingestion_run_id": ingestion_run_id, "source_name": source_name},
-            output={"narrative": narrative}, rationale="document analyzed",
+            output={"narrative": narrative, "sheets": len(stats["sheets"])},
+            rationale="document analyzed locally" + (" + LLM" if narrative else ""),
         ))
 
     return {"status": "ok", "run_id": run_id, "report_id": report_id, "source_name": source_name}
