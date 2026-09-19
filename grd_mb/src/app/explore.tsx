@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnalysisResult, type ReportPayload } from '@/components/analysis-result';
@@ -7,7 +7,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { listReports, listRuns } from '@/lib/api';
+import { runLabel } from '@/components/ui';
+import { listReports, listRuns, reportExcelUrl, reportHtmlUrl } from '@/lib/api';
 
 type Run = {
   id: number;
@@ -15,7 +16,7 @@ type Run = {
   status: string;
   started_at: string | null;
   finished_at: string | null;
-  context: { ticker?: string; outcome?: string; reason?: string };
+  context: { ticker?: string; kind?: string; outcome?: string; reason?: string };
 };
 
 function fmt(iso: string | null) {
@@ -32,9 +33,12 @@ function outcomeLabel(run: Run) {
   return run.status;
 }
 
+type ReportRef = { id: number; html: boolean; excel: boolean };
+
 type ExpandedState = {
   runId: number;
   loading: boolean;
+  ref: ReportRef | null;
   report: ReportPayload | null;
   error: string | null;
 };
@@ -72,14 +76,24 @@ export default function HistoryScreen() {
       setExpanded(null);
       return;
     }
-    setExpanded({ runId, loading: true, report: null, error: null });
+    setExpanded({ runId, loading: true, ref: null, report: null, error: null });
     try {
       const reports = await listReports(runId);
-      const payload = reports?.[0]?.payload ?? null;
-      setExpanded({ runId, loading: false, report: payload, error: null });
+      const first = reports?.[0];
+      const payload = first?.payload ?? null;
+      const ref: ReportRef | null = first
+        ? {
+            id: first.id,
+            html: Boolean(first.html_path),
+            excel: Boolean(
+              payload?.fundamentals_report || payload?.ratio_report || payload?.document_analysis,
+            ),
+          }
+        : null;
+      setExpanded({ runId, loading: false, ref, report: payload, error: null });
     } catch (err) {
       setExpanded({
-        runId, loading: false, report: null,
+        runId, loading: false, ref: null, report: null,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -122,7 +136,7 @@ export default function HistoryScreen() {
                 style={({ pressed }) => pressed && styles.pressed}>
                 <ThemedView type="backgroundElement" style={styles.row}>
                   <ThemedView style={styles.rowHeader}>
-                    <ThemedText type="smallBold">{run.context?.ticker ?? '—'}</ThemedText>
+                    <ThemedText type="smallBold">{runLabel(run.context)}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
                       #{run.id}
                     </ThemedText>
@@ -141,6 +155,20 @@ export default function HistoryScreen() {
                     <ThemedText type="small" themeColor="textSecondary">
                       No report was persisted for this run.
                     </ThemedText>
+                  )}
+                  {expanded.ref && (
+                    <ThemedView style={{ flexDirection: 'row', gap: Spacing.two }}>
+                      {expanded.ref.html && (
+                        <Pressable onPress={() => Linking.openURL(reportHtmlUrl(expanded.ref!.id))}>
+                          <ThemedText type="link">View HTML</ThemedText>
+                        </Pressable>
+                      )}
+                      {expanded.ref.excel && (
+                        <Pressable onPress={() => Linking.openURL(reportExcelUrl(expanded.ref!.id))}>
+                          <ThemedText type="link">Download Excel</ThemedText>
+                        </Pressable>
+                      )}
+                    </ThemedView>
                   )}
                   {expanded.report && <AnalysisResult report={expanded.report} />}
                 </ThemedView>

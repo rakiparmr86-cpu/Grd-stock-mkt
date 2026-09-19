@@ -21,6 +21,7 @@ export function LoginScreen() {
   const theme = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -73,17 +74,33 @@ export function LoginScreen() {
               <ThemedText type="smallBold" style={styles.label}>
                 Password
               </ThemedText>
-              <TextInput
-                style={[styles.input, { color: theme.text, borderColor: theme.backgroundSelected }]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor={theme.textSecondary}
-                secureTextEntry
-                textContentType="password"
-                returnKeyType="go"
-                onSubmitEditing={submit}
-              />
+              <ThemedView style={styles.passwordWrap}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.passwordInput,
+                    { color: theme.text, borderColor: theme.backgroundSelected },
+                  ]}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={theme.textSecondary}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={submit}
+                />
+                <Pressable
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  style={styles.toggle}>
+                  <ThemedText type="link">{showPassword ? 'Hide' : 'Show'}</ThemedText>
+                </Pressable>
+              </ThemedView>
 
               {(localError || error) && (
                 <ThemedText themeColor="text" style={styles.error}>
@@ -153,6 +170,20 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     marginBottom: Spacing.three,
     fontSize: 16,
+  },
+  passwordWrap: {
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  passwordInput: {
+    paddingRight: 64,
+  },
+  toggle: {
+    position: 'absolute',
+    right: Spacing.three,
+    top: 0,
+    bottom: Spacing.three,
+    justifyContent: 'center',
   },
   error: {
     color: '#d92d20',

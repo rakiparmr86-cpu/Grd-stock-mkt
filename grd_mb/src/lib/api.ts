@@ -41,7 +41,7 @@ export async function api(path: string, opts: RequestInit = {}) {
   const headers = new Headers(opts.headers);
   const token = await getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (opts.body && !headers.has('content-type')) {
+  if (opts.body && !(opts.body instanceof FormData) && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
 
@@ -117,4 +117,90 @@ export function getRun(runId: number | string) {
 
 export function listReports(runId: number | string) {
   return api(`/reports?run_id=${runId}&limit=5`);
+}
+
+export function getRunDecisions(runId: number | string) {
+  return api(`/runs/${runId}/decisions`);
+}
+
+export function listSignals(runId: number | string) {
+  return api(`/signals?run_id=${runId}&limit=200`);
+}
+
+export function listReportsFull(runId: number | string) {
+  return api(`/reports?run_id=${runId}&limit=50`);
+}
+
+// Same URLs the web frontend links to; open them in the device browser.
+export function reportHtmlUrl(reportId: number) {
+  return `${API_BASE}/reports/${reportId}/html`;
+}
+
+export function reportExcelUrl(reportId: number) {
+  return `${API_BASE}/reports/${reportId}/excel`;
+}
+
+// ── uploads / document analysis ───────────────────────────────────
+export function triggerDocumentRun(ingestionRunId: number, async_ = true) {
+  return api('/runs/document', {
+    method: 'POST',
+    body: JSON.stringify({ ingestion_run_id: ingestionRunId, async_ }),
+  });
+}
+
+export function uploadsTracker(limit = 100) {
+  return api(`/inputs/uploads-tracker?limit=${limit}`);
+}
+
+export type UploadOptions = {
+  mode: 'ingest_once' | 'save_source';
+  excelMode: 'docs' | 'rows';
+  rowKind: 'ohlcv' | 'fundamental';
+  ticker?: string;
+  docType?: string;
+};
+
+export type PickedFile = { uri: string; name: string; mimeType?: string | null; file?: File };
+
+export function uploadFiles(files: PickedFile[], opts: UploadOptions) {
+  const fd = new FormData();
+  for (const f of files) {
+    // web gives a real File; native needs the {uri,name,type} shape RN understands
+    if (Platform.OS === 'web' && f.file) fd.append('files', f.file, f.name);
+    else {
+      const part = { uri: f.uri, name: f.name, type: f.mimeType ?? 'application/octet-stream' };
+      fd.append('files', part as unknown as Blob);
+    }
+  }
+  fd.append('mode', opts.mode);
+  fd.append('excel_mode', opts.excelMode);
+  fd.append('row_kind', opts.rowKind);
+  if (opts.docType) fd.append('doc_type', opts.docType);
+  if (opts.ticker?.trim()) fd.append('ticker', opts.ticker.trim().toUpperCase());
+  return api('/inputs/upload', { method: 'POST', body: fd });
+}
+
+export function listSources() {
+  return api('/inputs');
+}
+
+export function runSource(id: number) {
+  return api(`/inputs/${id}/run`, { method: 'POST' });
+}
+
+// ── system health / activity / exceptions ─────────────────────────
+export function healthServices() {
+  return api('/health/services');
+}
+
+export function listActivity(limit = 150) {
+  return api(`/activity?limit=${limit}`);
+}
+
+export function listExceptions(limit = 200) {
+  return api(`/exceptions?limit=${limit}`);
+}
+
+export function deleteException(id: number) {
+  return api(`/exceptions/${id}`, { method: 'DELETE' });
 }

@@ -51,6 +51,14 @@ def _patch_all_healthy(monkeypatch):
         celery_app.control, "ping",
         lambda timeout=None, limit=None: [{"celery@worker1": {"ok": "pong"}}],
     )
+    monkeypatch.setattr(
+        celery_app.control, "inspect",
+        lambda **_kw: type("I", (), {
+            "active": lambda self: {"celery@worker1": [{"name": "t.demo"}]},
+            "reserved": lambda self: {"celery@worker1": []},
+            "registered": lambda self: {"celery@worker1": ["a", "b"]},
+        })(),
+    )
 
 
 async def test_all_services_up(monkeypatch):
@@ -115,3 +123,20 @@ async def test_celery_ping_called_with_limit_one():
 
     assert calls == [{"timeout": 1.5, "limit": 1}]
     assert out["services"]["celery_worker"]["status"] == "up"
+
+
+async def test_review_info_and_links_attached_when_up(monkeypatch):
+    _patch_all_healthy(monkeypatch)
+    out = (await services(_FakeDb()))["services"]
+    assert out["qdrant"]["link"].endswith("/dashboard")
+    info = out["celery_worker"]["info"]
+    assert info["celery@worker1: running now"] == 1
+    assert info["celery@worker1: registered tasks"] == 2
+    assert "hint" in out["redis"]
+
+
+async def test_info_failure_never_turns_service_down(monkeypatch):
+    _patch_all_healthy(monkeypatch)
+    out = (await services(_FakeDb()))["services"]
+    assert out["redis"]["status"] == "up"
+    assert out["redis"].get("info", {}) == {}

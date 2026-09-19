@@ -27,6 +27,20 @@ export default function AppTabs() {
           renderingMode="template"
         />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="uploads">
+        <NativeTabs.Trigger.Label>Uploads</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="square.and.arrow.up" md="upload" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="activity">
+        <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="list.bullet.rectangle" md="list" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="health">
+        <NativeTabs.Trigger.Label>Health</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="waveform.path.ecg" md="monitor_heart" />
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }

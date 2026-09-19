@@ -47,6 +47,73 @@ def ready(db: DbSession) -> dict:
     return {"status": "ok" if ok else "degraded", "checks": checks}
 
 
+def _safe_info(fn, *args) -> dict:
+    """Review details are a bonus on top of the up/down verdict — never let
+    a failure gathering them turn a healthy service into an error."""
+    try:
+        return fn(*args) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _postgres_info(db: Session) -> dict:
+    version = db.execute(text("SHOW server_version")).scalar()
+    size = db.execute(text("SELECT pg_size_pretty(pg_database_size(current_database()))")).scalar()
+    conns = db.execute(
+        text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")
+    ).scalar()
+    info: dict = {"version": version, "database size": size, "connections": conns}
+    for table in ("analysis_runs", "ingestion_runs", "reports", "ohlcv", "fundamentals"):
+        try:
+            info[f"rows: {table}"] = db.execute(text(f"SELECT count(*) FROM {table}")).scalar()  # noqa: S608 - fixed names
+        except Exception:  # noqa: BLE001
+            db.rollback()
+    return info
+
+
+def _redis_info() -> dict:
+    import redis
+
+    r = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+    server = r.info()
+    broker = redis.Redis.from_url(settings.celery_broker_url, socket_connect_timeout=2)
+    return {
+        "version": server.get("redis_version"),
+        "memory used": server.get("used_memory_human"),
+        "connected clients": server.get("connected_clients"),
+        "tasks waiting in queue": broker.llen("celery"),
+    }
+
+
+def _qdrant_info() -> dict:
+    from qdrant_client import QdrantClient
+
+    client = QdrantClient(
+        url=settings.qdrant_url, api_key=settings.qdrant_api_key or None, timeout=2,
+    )
+    info: dict = {"url": settings.qdrant_url}
+    for c in client.get_collections().collections:
+        info[f"collection: {c.name}"] = f"{client.count(c.name).count} chunks"
+    return info
+
+
+def _celery_info(worker_names: list[str]) -> dict:
+    from app.workers.celery_app import celery_app
+
+    insp = celery_app.control.inspect(timeout=1.0, destination=worker_names)
+    active = insp.active() or {}
+    reserved = insp.reserved() or {}
+    registered = insp.registered() or {}
+    info: dict = {"broker": settings.celery_broker_url}
+    for name in worker_names:
+        info[f"{name}: running now"] = len(active.get(name, []))
+        info[f"{name}: reserved (queued on worker)"] = len(reserved.get(name, []))
+        info[f"{name}: registered tasks"] = len(registered.get(name, []))
+        for i, t in enumerate(active.get(name, [])[:5]):
+            info[f"{name}: active task {i + 1}"] = t.get("name")
+    return info
+
+
 def _check_postgres(db: Session) -> dict:
     try:
         db.execute(text("SELECT 1"))
@@ -125,6 +192,23 @@ async def services(db: DbSession) -> dict:
         asyncio.to_thread(_check_qdrant),
         asyncio.to_thread(_check_celery_worker),
     )
+    if postgres["status"] == "up":
+        postgres["info"] = _safe_info(_postgres_info, db)
+    if redis_["status"] == "up":
+        redis_["info"] = _safe_info(_redis_info)
+        redis_["hint"] = (
+            "No web page. Inspect with: docker exec grd-stock-mkt-redis-1 redis-cli info"
+        )
+    if qdrant["status"] == "up":
+        qdrant["info"] = _safe_info(_qdrant_info)
+        qdrant["link"] = f"{settings.qdrant_url.rstrip('/')}/dashboard"
+    if celery_worker["status"] == "up":
+        names = [n.strip() for n in celery_worker["detail"].split(":", 1)[1].split(",")]
+        celery_worker["info"] = await asyncio.to_thread(_safe_info, _celery_info, names)
+        celery_worker["hint"] = (
+            "No web page. Live view: celery -A app.workers.celery_app inspect active "
+            "(or run Flower). Worker log: the terminal / logs\celery_worker.out.log"
+        )
     return {
         "services": {
             "postgres": postgres,

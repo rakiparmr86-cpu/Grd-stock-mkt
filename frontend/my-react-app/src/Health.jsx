@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { healthServices } from './api'
 import { useRefreshButton } from './useRefreshButton'
 
@@ -31,6 +31,7 @@ export default function Health() {
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
   const [lastChecked, setLastChecked] = useState(null)
+  const [openKey, setOpenKey] = useState(null)
   const timer = useRef(null)
 
   const load = useCallback(async () => {
@@ -91,12 +92,13 @@ export default function Health() {
               <th>Service</th>
               <th>Status</th>
               <th>Detail</th>
+              <th>Review</th>
             </tr>
           </thead>
           <tbody>
             {!data && !err && (
               <tr>
-                <td colSpan="3" className="muted">
+                <td colSpan="4" className="muted">
                   checking…
                 </td>
               </tr>
@@ -104,14 +106,57 @@ export default function Health() {
             {ORDER.map((key) => {
               const s = services[key]
               if (!s) return null
+              const info = s.info && Object.keys(s.info).length ? s.info : null
+              const canOpen = Boolean(info || s.hint)
+              const isOpen = openKey === key
               return (
-                <tr key={key}>
-                  <td>{LABELS[key]}</td>
-                  <td>
-                    <StatusBadge status={s.status} />
-                  </td>
-                  <td className={statusClass(s.status)}>{s.detail || '—'}</td>
-                </tr>
+                <Fragment key={key}>
+                  <tr>
+                    <td>{LABELS[key]}</td>
+                    <td>
+                      <StatusBadge status={s.status} />
+                    </td>
+                    <td className={statusClass(s.status)}>{s.detail || '—'}</td>
+                    <td>
+                      <div className="report-links">
+                        {s.link && (
+                          <a className="ghost-link" href={s.link} target="_blank" rel="noreferrer">
+                            Open dashboard ↗
+                          </a>
+                        )}
+                        {canOpen && (
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setOpenKey(isOpen ? null : key)}
+                          >
+                            {isOpen ? 'Hide details' : 'View details'}
+                          </button>
+                        )}
+                        {!s.link && !canOpen && <span className="tiny muted">—</span>}
+                      </div>
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan="4">
+                        {info && (
+                          <table>
+                            <tbody>
+                              {Object.entries(info).map(([k, v]) => (
+                                <tr key={k}>
+                                  <td className="muted">{k}</td>
+                                  <td>{String(v)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {s.hint && <p className="tiny muted">{s.hint}</p>}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               )
             })}
           </tbody>

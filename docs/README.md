@@ -9,6 +9,9 @@
 | **[DATABASE.md](DATABASE.md)** | Developers / operators | How the schema is managed (Alembic migrations), the change workflow, `make db-*` commands, CI checks, prod / K8s rollout. |
 | **[RULES.md](RULES.md)** | Anyone writing strategies | Copy-paste signal-rule expressions (RSI, crossovers, breakouts, combined) + gotchas. |
 | **[DATA_FORMATS.md](DATA_FORMATS.md)** | Anyone feeding data in | Exact file/column/date formats each input connector expects; auth config for crawler & API. |
+| **[COMMANDS.md](COMMANDS.md)** | Anyone running the project | Every command from install to running: Python env, `.env`, Docker, migrations, API, worker, web and mobile apps, tests, troubleshooting. |
+| **[UPLOAD_AND_AGENTS.md](UPLOAD_AND_AGENTS.md)** | Anyone | What happens after an upload, and how the analysis agents work together. |
+| **[ANALYSIS_METHODS.md](ANALYSIS_METHODS.md)** | Anyone / analysts | Every technique, statistic and library the analysis uses, thresholds included, and what is (not) an LLM. |
 
 Project one-screen summary: [../README.md](../README.md)
 

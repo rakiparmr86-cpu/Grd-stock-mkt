@@ -14,9 +14,12 @@ type Forecast = Record<
   }
 >;
 
+type TableBlock = { heading: string; note?: string; columns: string[]; rows: string[][] };
+
 export type ReportPayload = {
   title: string;
-  recommendation: { action: string; confidence: number; thesis: string };
+  recommendation?: { action: string; confidence: number; thesis: string };
+  tables?: TableBlock[];
   indicators: Record<string, number>;
   forecast: Forecast | null;
   sections: { heading: string; body: string; bullets: string[] }[];
@@ -33,18 +36,50 @@ function fmt(n: number) {
 }
 
 export function AnalysisResult({ report }: { report: ReportPayload }) {
-  const actionColor = ACTION_COLOR[report.recommendation?.action] ?? '#60646C';
+  const actionColor = ACTION_COLOR[report.recommendation?.action ?? ''] ?? '#60646C';
 
   return (
     <ThemedView style={styles.wrap}>
-      <ThemedView style={styles.headerRow}>
-        <ThemedView style={[styles.actionBadge, { backgroundColor: actionColor }]}>
-          <ThemedText style={styles.actionText}>{report.recommendation?.action ?? '—'}</ThemedText>
+      {!!report.title && !report.recommendation && <ThemedText type="smallBold">{report.title}</ThemedText>}
+      {!!report.recommendation && (
+        <ThemedView style={styles.headerRow}>
+          <ThemedView style={[styles.actionBadge, { backgroundColor: actionColor }]}>
+            <ThemedText style={styles.actionText}>{report.recommendation.action ?? '—'}</ThemedText>
+          </ThemedView>
+          <ThemedText themeColor="textSecondary" type="small">
+            confidence {Math.round((report.recommendation.confidence ?? 0) * 100)}%
+          </ThemedText>
         </ThemedView>
-        <ThemedText themeColor="textSecondary" type="small">
-          confidence {Math.round((report.recommendation?.confidence ?? 0) * 100)}%
-        </ThemedText>
-      </ThemedView>
+      )}
+
+      {report.tables?.map((t) => (
+        <ThemedView key={t.heading} type="backgroundElement" style={styles.card}>
+          <ThemedText type="smallBold" style={styles.cardTitle}>
+            {t.heading}
+          </ThemedText>
+          {!!t.note && (
+            <ThemedText type="small" themeColor="textSecondary">
+              {t.note}
+            </ThemedText>
+          )}
+          <ThemedView style={styles.tableRow}>
+            {t.columns.map((c, i) => (
+              <ThemedText key={c} type="smallBold" themeColor="textSecondary" style={[styles.cell, i > 0 && styles.cellNum]}>
+                {c}
+              </ThemedText>
+            ))}
+          </ThemedView>
+          {t.rows.map((row, ri) => (
+            <ThemedView key={ri} style={styles.tableRow}>
+              {row.map((cell, ci) => (
+                <ThemedText key={ci} type="small" style={[styles.cell, ci > 0 && styles.cellNum]}>
+                  {cell}
+                </ThemedText>
+              ))}
+            </ThemedView>
+          ))}
+        </ThemedView>
+      ))}
 
       {!!report.recommendation?.thesis && (
         <ThemedText style={styles.thesis}>{report.recommendation.thesis}</ThemedText>
@@ -108,6 +143,9 @@ export function AnalysisResult({ report }: { report: ReportPayload }) {
 }
 
 const styles = StyleSheet.create({
+  tableRow: { flexDirection: 'row', gap: Spacing.two, paddingVertical: 2 },
+  cell: { flex: 1 },
+  cellNum: { textAlign: 'right' },
   wrap: {
     gap: Spacing.three,
   },
