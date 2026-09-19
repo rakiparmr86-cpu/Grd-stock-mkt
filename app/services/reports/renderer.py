@@ -38,6 +38,7 @@ class ReportRenderer:
             "sections": payload.get("sections", []),
             "indicators": payload.get("indicators", {}),
             "forecast": payload.get("forecast"),
+            "tables": payload.get("tables", []),
         }
         return tmpl.render(**ctx)
 

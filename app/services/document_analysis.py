@@ -16,9 +16,11 @@ and that's reported clearly rather than guessed at.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.agents.llm import EchoLLM, get_llm
+from app.core.config import settings
 from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.models.history import AgentDecision, Report
@@ -27,6 +29,11 @@ from app.repositories.ingestion_run import IngestionRunRepository
 from app.repositories.report import ReportRepository
 from app.services.document_stats import _fmt, analyze_text, report_sections
 from app.services.rag.vectorstore import get_store
+from app.services.reports.prediction_report import (
+    build_prediction_model,
+    html_tables,
+    is_screener_workbook,
+)
 from app.services.reports.renderer import render_report
 
 log = get_logger(__name__)
@@ -84,6 +91,17 @@ def _document_text(ingestion_run) -> str:
     return text
 
 
+def _source_workbook(ingestion_run) -> Path | None:
+    """The original uploaded file, recovered from the chunk metadata."""
+    for source_id in (ingestion_run.stats or {}).get("source_ids") or []:
+        for chunk in get_store().get_by_source(source_id)[:1]:
+            name = chunk.get("filename")
+            if name:
+                path = Path(settings.uploads_dir) / name
+                return path if path.exists() else None
+    return None
+
+
 def analyze_document(ingestion_run_id: int, *, run_id: int) -> dict[str, Any]:
     """Summarize/analyze one uploaded document and persist the result as a
     ``Report`` under ``run_id``. Deliberately does not open or close the
@@ -98,9 +116,17 @@ def analyze_document(ingestion_run_id: int, *, run_id: int) -> dict[str, Any]:
             raise DocumentAnalysisError(f"ingestion run #{ingestion_run_id} not found")
         source_name = ingestion_run.source_name
         text = _document_text(ingestion_run)
+        workbook = _source_workbook(ingestion_run)
 
     stats = analyze_text(text)
-    sections = report_sections(stats)
+    prediction = None
+    if workbook and is_screener_workbook(workbook):
+        try:
+            prediction = build_prediction_model(workbook)
+        except ValueError as exc:
+            log.warning("prediction report skipped for %s: %s", source_name, exc)
+    # a prediction report replaces the generic per-sheet dump for statement workbooks
+    sections = [] if prediction else report_sections(stats)
     narrative = ""
     llm = get_llm()
     if not isinstance(llm, EchoLLM):
@@ -118,11 +144,20 @@ def analyze_document(ingestion_run_id: int, *, run_id: int) -> dict[str, Any]:
     ) or f"{stats['overview']['words']:,} words analyzed locally"
 
     payload = {
-        "title": f"Document analysis — {source_name}",
+        "title": (f"{prediction['company']} — prediction report" if prediction
+                  else f"Document analysis — {source_name}"),
         "run_id": run_id,
         "sections": sections,
         "document_analysis": stats,
     }
+    if prediction:
+        payload["prediction_model"] = prediction
+        payload["tables"] = html_tables(prediction)
+        base = prediction["scenarios"]["base"]
+        summary = (f"Base case {prediction['outlook'][1]['period']}: sales "
+                   f"{base['sales']:,.0f}, EPS {base['eps']:.2f}, implied price "
+                   f"{base['implied_price']:,.0f} ({base['upside_downside_pct']:+.1f}%); "
+                   f"signal {prediction['overall']}")
     rendered = render_report(payload, slug="document")
 
     with session_scope() as db:

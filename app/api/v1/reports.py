@@ -11,6 +11,7 @@ from app.api.deps import ReportRepo
 from app.models.history import Report
 from app.schemas.history import ReportOut
 from app.services.reports.excel_writeback import write_grd_calculation_sheet
+from app.services.reports.prediction_report import write_prediction_sheets
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -50,6 +51,9 @@ def get_report_excel(report_id: int, reports: ReportRepo) -> StreamingResponse:
     report = reports.get(report_id)
     if not report:
         raise HTTPException(404, "report not found")
+    model = (report.payload or {}).get("prediction_model")
+    if model:
+        return _prediction_excel(model)
     doc = (report.payload or {}).get("document_analysis")
     if doc:
         return _document_excel(doc, report.title)
@@ -106,4 +110,18 @@ def _document_excel(doc: dict, title: str) -> StreamingResponse:
     return StreamingResponse(
         buf, media_type=_XLSX_MIME,
         headers={"Content-Disposition": 'attachment; filename="document_analysis.xlsx"'},
+    )
+
+
+def _prediction_excel(model: dict) -> StreamingResponse:
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    write_prediction_sheets(wb, model)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    name = "".join(c if c.isalnum() else "_" for c in model["company"]).strip("_")
+    return StreamingResponse(
+        buf, media_type=_XLSX_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{name}_Prediction.xlsx"'},
     )
