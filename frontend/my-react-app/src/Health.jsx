@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { healthServices } from './api'
+import { useRefreshButton } from './useRefreshButton'
 
 const POLL_MS = 10000
 
@@ -43,6 +44,8 @@ export default function Health() {
     }
   }, [])
 
+  const { refreshing, handleClick: handleRefreshClick } = useRefreshButton(load)
+
   useEffect(() => {
     load()
     timer.current = setInterval(load, POLL_MS)
@@ -60,8 +63,8 @@ export default function Health() {
           {lastChecked && (
             <span className="tiny muted">checked {lastChecked.toLocaleTimeString()}</span>
           )}
-          <button type="button" className="ghost" onClick={load}>
-            Refresh
+          <button type="button" className="ghost" onClick={handleRefreshClick} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>

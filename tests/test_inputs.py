@@ -195,6 +195,28 @@ def test_run_connector_routes_docs_and_rows(monkeypatch):
     assert calls["docs"] == ["hello doc"]
 
 
+def test_run_connector_collects_source_ids_for_document_analysis(monkeypatch):
+    """The "Manual Document Analysis" feature needs to find, later, which
+    Qdrant chunks came from a given upload — ``source_ids`` in the stats
+    dict (persisted onto ``IngestionRun.stats``) is how it does that."""
+    monkeypatch.setattr(
+        "app.services.inputs.sink.ingest_text",
+        lambda text, **kw: {"chunks": 2, "source_id": "abc123"},
+    )
+    monkeypatch.setattr("app.services.inputs.sink.upsert_ohlcv", lambda df, **kw: len(df))
+    stats = run_connector(_StubConnector({}), source_name="unit")
+    assert stats["source_ids"] == ["abc123"]
+
+
+def test_run_connector_source_ids_empty_when_ingest_omits_it(monkeypatch):
+    """Must not KeyError when a caller's ingest_text stub (or a real zero-
+    chunk result) doesn't include a source_id."""
+    monkeypatch.setattr("app.services.inputs.sink.ingest_text", lambda text, **kw: {"chunks": 2})
+    monkeypatch.setattr("app.services.inputs.sink.upsert_ohlcv", lambda df, **kw: len(df))
+    stats = run_connector(_StubConnector({}), source_name="unit")
+    assert stats["source_ids"] == []
+
+
 def test_run_connector_dry_run_writes_nothing(monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("dry_run must not write")

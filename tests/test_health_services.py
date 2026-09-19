@@ -1,7 +1,11 @@
 """GET /health/services — one status per dependency (Postgres/Redis/Qdrant/
 Celery worker), independent of each other so one failure doesn't hide the
-rest. Monkeypatches each dependency's client class/module at its own import
-location, since the route imports them lazily inside the function body."""
+rest, and checked concurrently rather than sequentially (a real bug found
+live: run one after another, four checks with their own 1.5-2s timeouts
+could add up to several real seconds of total latency, making a working
+Refresh button look stuck). Monkeypatches each dependency's client
+class/module at its own import location, since the checks import them
+lazily inside their own function bodies."""
 
 from __future__ import annotations
 
@@ -44,13 +48,14 @@ def _patch_all_healthy(monkeypatch):
 
     from app.workers.celery_app import celery_app
     monkeypatch.setattr(
-        celery_app.control, "ping", lambda timeout=None: [{"celery@worker1": {"ok": "pong"}}],
+        celery_app.control, "ping",
+        lambda timeout=None, limit=None: [{"celery@worker1": {"ok": "pong"}}],
     )
 
 
-def test_all_services_up(monkeypatch):
+async def test_all_services_up(monkeypatch):
     _patch_all_healthy(monkeypatch)
-    out = services(_FakeDb())
+    out = await services(_FakeDb())
     assert out["services"]["postgres"]["status"] == "up"
     assert out["services"]["redis"]["status"] == "up"
     assert out["services"]["qdrant"]["status"] == "up"
@@ -59,9 +64,9 @@ def test_all_services_up(monkeypatch):
     assert out["services"]["celery_beat"]["status"] == "unknown"
 
 
-def test_postgres_down_does_not_affect_other_checks(monkeypatch):
+async def test_postgres_down_does_not_affect_other_checks(monkeypatch):
     _patch_all_healthy(monkeypatch)
-    out = services(_FakeDb(raises=True))
+    out = await services(_FakeDb(raises=True))
     assert out["services"]["postgres"]["status"] == "down"
     assert "connection refused" in out["services"]["postgres"]["detail"]
     assert out["services"]["redis"]["status"] == "up"
@@ -69,20 +74,44 @@ def test_postgres_down_does_not_affect_other_checks(monkeypatch):
     assert out["services"]["celery_worker"]["status"] == "up"
 
 
-def test_no_worker_responds_reports_celery_down(monkeypatch):
+async def test_no_worker_responds_reports_celery_down(monkeypatch):
     _patch_all_healthy(monkeypatch)
     from app.workers.celery_app import celery_app
-    monkeypatch.setattr(celery_app.control, "ping", lambda timeout=None: [])
+    monkeypatch.setattr(celery_app.control, "ping", lambda timeout=None, limit=None: [])
 
-    out = services(_FakeDb())
+    out = await services(_FakeDb())
     assert out["services"]["celery_worker"]["status"] == "down"
 
 
-def test_redis_down_reported_independently(monkeypatch):
+async def test_redis_down_reported_independently(monkeypatch):
     _patch_all_healthy(monkeypatch)
     import redis
     monkeypatch.setattr(redis.Redis, "from_url", lambda *a, **kw: _FakeRedis(raises=True))
 
-    out = services(_FakeDb())
+    out = await services(_FakeDb())
     assert out["services"]["redis"]["status"] == "down"
     assert out["services"]["postgres"]["status"] == "up"
+
+
+async def test_celery_ping_called_with_limit_one():
+    """The actual bug: without ``limit=1``, Celery's ``control.ping()``
+    always waits out the *entire* timeout to collect replies from every
+    possible worker, even when the first (and only) worker replies
+    instantly — a deterministic ~1.5s tax on every single health check."""
+    calls = []
+
+    class _Control:
+        def ping(self, timeout=None, limit=None):
+            calls.append({"timeout": timeout, "limit": limit})
+            return [{"celery@worker1": {"ok": "pong"}}]
+
+    import app.workers.celery_app as celery_module
+    original_control = celery_module.celery_app.control
+    celery_module.celery_app.control = _Control()
+    try:
+        out = await services(_FakeDb())
+    finally:
+        celery_module.celery_app.control = original_control
+
+    assert calls == [{"timeout": 1.5, "limit": 1}]
+    assert out["services"]["celery_worker"]["status"] == "up"

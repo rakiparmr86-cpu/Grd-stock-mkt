@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthError, api } from './api'
 import { useReportBusy } from './taskActivity'
+import { useRefreshButton } from './useRefreshButton'
 
 function Result({ value }) {
   if (!value) return null
@@ -403,18 +404,20 @@ function Sources({ onExpire }) {
     }
   }
 
-  const refresh = () => {
+  const refresh = useCallback(async () => {
     resetTasks()
     setRunningTasks({})
-    load()
-  }
+    await load()
+  }, [resetTasks, load])
+
+  const { refreshing, handleClick: handleRefreshClick } = useRefreshButton(refresh)
 
   return (
     <div className="card wide">
       <div className="card-head">
         <h2>Saved input sources</h2>
-        <button type="button" className="ghost" onClick={refresh}>
-          Refresh
+        <button type="button" className="ghost" onClick={handleRefreshClick} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
       {err && <pre className="result err">{err}</pre>}

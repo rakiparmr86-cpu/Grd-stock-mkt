@@ -57,6 +57,10 @@ class _FakeClient:
             "instead of query_points()"
         )
 
+    def scroll(self, **kwargs):
+        self.last_call = kwargs
+        return self._points, None
+
 
 def _store_with_fake_client(points) -> tuple[QdrantStore, _FakeClient]:
     store = QdrantStore.__new__(QdrantStore)  # skip __init__: no real connection
@@ -97,6 +101,24 @@ def test_search_no_filter_when_no_args():
     store, fake = _store_with_fake_client([])
     store.search([0.0] * 4)
     assert fake.last_call["query_filter"] is None
+
+
+def test_get_by_source_returns_chunks_sorted_by_index():
+    """Standalone document analysis needs a document's full text back in the
+    right order — get_by_source uses scroll() (all matching points), not
+    query_points()/search() (nearest-to-a-vector), and must not rely on
+    Qdrant returning them in chunk order on its own."""
+    points = [
+        _FakePoint("p2", None, {"text": "second", "source_id": "doc1", "chunk": 1}),
+        _FakePoint("p1", None, {"text": "first", "source_id": "doc1", "chunk": 0}),
+    ]
+    store, fake = _store_with_fake_client(points)
+    chunks = store.get_by_source("doc1")
+
+    assert [c["text"] for c in chunks] == ["first", "second"]
+    flt = fake.last_call["scroll_filter"]
+    conditions = {c.key: c.match.value for c in flt.must}
+    assert conditions == {"source_id": "doc1"}
 
 
 class _FakeCollectionsClient:

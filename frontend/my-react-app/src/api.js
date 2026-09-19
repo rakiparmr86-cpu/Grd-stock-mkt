@@ -110,6 +110,12 @@ export function getRunDecisions(runId) {
 export function triggerRun(payload) {
   return api('/runs', { method: 'POST', body: JSON.stringify(payload) })
 }
+export function triggerDocumentRun(ingestionRunId, { async: async_ = true } = {}) {
+  return api('/runs/document', {
+    method: 'POST',
+    body: JSON.stringify({ ingestion_run_id: ingestionRunId, async_ }),
+  })
+}
 export function listSignals(runId) {
   return api(`/signals?run_id=${runId}&limit=200`)
 }

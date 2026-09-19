@@ -6,6 +6,7 @@ from app.core.database import session_scope
 from app.core.logging import get_logger
 from app.repositories.strategy import StrategyRepository
 from app.repositories.watchlist import WatchlistRepository
+from app.services.document_analysis import analyze_document
 from app.services.exception_log import log_exception
 from app.services.orchestrator import analyze_ticker, close_run, open_run
 from app.workers.celery_app import celery_app
@@ -39,6 +40,28 @@ def analyze_ticker_task(self, ticker: str, strategy_id: int | None = None,
         send_report_alert.delay(run_id=run_id, ticker=ticker, recipient=notify_to,
                                 report=result["report"])
     return {"run_id": run_id, "ticker": ticker, "status": result.get("status")}
+
+
+@celery_app.task(name="app.workers.tasks.analysis.analyze_document_task", bind=True)
+def analyze_document_task(self, ingestion_run_id: int) -> dict:
+    """The "Manual Document Analysis" path — analyzes one uploaded document
+    (PDF/Excel/image) on its own, with no ticker and no OHLCV gate. Wraps
+    ``analyze_document`` with its own ``AnalysisRun`` exactly like
+    ``analyze_ticker_task`` wraps ``analyze_ticker``, just with a
+    ``context`` that has no ``ticker`` key at all — the Activity feed and
+    Recent Runs already degrade gracefully to "unknown ticker" for that."""
+    run_id = open_run("manual", context={
+        "kind": "document", "ingestion_run_id": ingestion_run_id,
+    })
+    try:
+        result = analyze_document(ingestion_run_id, run_id=run_id)
+        close_run(run_id, "done", extra_context={"outcome": "ok"})
+    except Exception as exc:  # noqa: BLE001
+        log.exception("analyze_document_task failed for ingestion_run=%s", ingestion_run_id)
+        log_exception("run", exc, context={"run_id": run_id, "ingestion_run_id": ingestion_run_id})
+        close_run(run_id, "error", str(exc))
+        raise
+    return result
 
 
 @celery_app.task(name="app.workers.tasks.analysis.scan_watchlist")

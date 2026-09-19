@@ -132,6 +132,25 @@ class QdrantStore:
             for p in res
         ]
 
+    def get_by_source(self, source_id: str) -> list[dict[str, Any]]:
+        """Every chunk belonging to one ingested document, in chunk order —
+        for reconstructing a document's full text (standalone document
+        analysis), not a similarity search. Uses ``scroll`` rather than
+        ``query_points``/``search``: those need a query vector and rank by
+        relevance, which makes no sense here — we want *all* of one
+        document's chunks, not the ones nearest to some vector."""
+        points, _next_offset = self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=qm.Filter(
+                must=[qm.FieldCondition(key="source_id", match=qm.MatchValue(value=source_id))]
+            ),
+            limit=1000,
+            with_payload=True,
+        )
+        chunks = [dict(p.payload or {}) for p in points]
+        chunks.sort(key=lambda c: c.get("chunk", 0))
+        return chunks
+
     def delete_by_source(self, source_id: str) -> None:
         self.client.delete(
             collection_name=self.collection,

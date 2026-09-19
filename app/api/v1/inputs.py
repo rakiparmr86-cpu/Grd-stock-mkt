@@ -43,20 +43,31 @@ def uploads_tracker(
     """Every upload/ingestion (ad-hoc or saved-source), most recent first,
     with an ``analyzed`` flag answering the question this project's users
     keep hitting: "I uploaded a file — did that data ever actually reach an
-    Analysis run?" ``analyzed`` is true only when an Analysis run for the
-    same ticker started *after* this ingestion finished — a run from before
-    the upload doesn't count, since it couldn't have seen this data.
+    Analysis run?" Two independent ways to satisfy it, matching the two
+    kinds of Run an upload can feed:
+
+    * a ticker upload — some Analysis run for the *same ticker* started
+      after this ingestion finished (a run from before the upload doesn't
+      count, since it couldn't have seen this data)
+    * a document upload (no ticker) — a "Manual Document Analysis" run
+      (``analyze_document``) exists whose context names *this exact*
+      ingestion run id
     """
     recent = ingestion_runs.list_recent(limit)
+    all_runs = runs.list_recent(500)
+
     latest_run_started_by_ticker: dict[str, datetime] = {}
-    for r in runs.list_recent(500):
-        ticker = (r.context or {}).get("ticker")
-        if not ticker or not r.started_at:
-            continue
-        ticker = ticker.upper()
-        prev = latest_run_started_by_ticker.get(ticker)
-        if prev is None or r.started_at > prev:
-            latest_run_started_by_ticker[ticker] = r.started_at
+    documented_ingestion_run_ids: set[int] = set()
+    for r in all_runs:
+        ctx = r.context or {}
+        ticker = ctx.get("ticker")
+        if ticker and r.started_at:
+            ticker = ticker.upper()
+            prev = latest_run_started_by_ticker.get(ticker)
+            if prev is None or r.started_at > prev:
+                latest_run_started_by_ticker[ticker] = r.started_at
+        if ctx.get("kind") == "document" and ctx.get("ingestion_run_id") is not None:
+            documented_ingestion_run_ids.add(ctx["ingestion_run_id"])
 
     items = []
     analyzed_count = 0
@@ -65,6 +76,8 @@ def uploads_tracker(
         if r.ticker and r.finished_at:
             latest = latest_run_started_by_ticker.get(r.ticker.upper())
             analyzed = bool(latest and latest >= r.finished_at)
+        elif not r.ticker:
+            analyzed = r.id in documented_ingestion_run_ids
         analyzed_count += analyzed
         items.append({
             "id": r.id, "source_name": r.source_name, "connector": r.connector,

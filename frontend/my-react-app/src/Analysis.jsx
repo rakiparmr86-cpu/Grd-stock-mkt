@@ -24,6 +24,16 @@ function statusClass(status) {
   return ''
 }
 
+// A run's context has no `ticker` at all for a "Manual Document Analysis"
+// run (context.kind === 'document') — without this, that run's row showed
+// a bare "—" indistinguishable from a broken/empty run, making a real,
+// completed document analysis look like nothing happened.
+function runLabel(context) {
+  if (context?.ticker) return context.ticker
+  if (context?.kind === 'document') return '📄 Document'
+  return '—'
+}
+
 function Json({ value }) {
   const [open, setOpen] = useState(false)
   if (value == null) return <span className="muted">—</span>
@@ -209,7 +219,7 @@ function RunDetail({ run, onExpire }) {
     <div className="card wide">
       <div className="card-head">
         <h2>
-          Run #{run.id} — {run.context?.ticker || '—'}
+          Run #{run.id} — {runLabel(run.context)}
         </h2>
         <span className={statusClass(run.status)}>{run.status}</span>
       </div>
@@ -374,7 +384,7 @@ function RunsTable({ runs, selectedId, onSelect, onRefresh }) {
                 onClick={() => onSelect(r.id)}
               >
                 <td>{r.id}</td>
-                <td>{r.context?.ticker || '—'}</td>
+                <td>{runLabel(r.context)}</td>
                 <td>{r.trigger}</td>
                 <td className={statusClass(r.status)}>{r.status}</td>
                 <td>{fmtDate(r.started_at)}</td>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AuthError, deleteException, listExceptions } from './api'
+import { useRefreshButton } from './useRefreshButton'
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -43,6 +44,8 @@ export default function Exceptions({ onExpire }) {
     load()
   }, [load])
 
+  const { refreshing, handleClick: handleRefreshClick } = useRefreshButton(load)
+
   const handleDelete = async (id) => {
     if (!window.confirm('Permanently delete this exception log entry? This cannot be undone.')) {
       return
@@ -63,8 +66,8 @@ export default function Exceptions({ onExpire }) {
     <div className="card wide">
       <div className="card-head">
         <h2>Exceptions</h2>
-        <button type="button" className="ghost" onClick={load}>
-          Refresh
+        <button type="button" className="ghost" onClick={handleRefreshClick} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
       <p className="hint">

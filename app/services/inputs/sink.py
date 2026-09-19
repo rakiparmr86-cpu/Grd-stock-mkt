@@ -22,13 +22,16 @@ log = get_logger(__name__)
 def route_result(result: ConnectorResult, *, source_name: str) -> dict[str, Any]:
     if result.kind == ConnectorKind.DOCS:
         docs_in = chunks = 0
+        source_ids: list[str] = []
         for doc in result.docs:
             docs_in += 1
             key = doc.source_key or f"{source_name}:{docs_in}"
             meta = {"input_source": source_name, **doc.metadata}
             res = ingest_text(doc.text, source_key=key, metadata=meta)
             chunks += res.get("chunks", 0)
-        return {"kind": "docs", "docs": docs_in, "chunks": chunks}
+            if res.get("chunks", 0) > 0 and res.get("source_id"):
+                source_ids.append(res["source_id"])
+        return {"kind": "docs", "docs": docs_in, "chunks": chunks, "source_ids": source_ids}
 
     if result.kind == ConnectorKind.ROWS:
         if result.rows is None or result.rows.empty:
@@ -52,7 +55,9 @@ def run_connector(connector, *, source_name: str, dry_run: bool = False,
     ``dry_run`` still iterates (so a crawler actually fetches) but writes nothing;
     useful for the ``POST /inputs/test`` preview.
     """
-    stats = {"results": 0, "docs": 0, "chunks": 0, "rows_written": 0, "errors": []}
+    stats = {
+        "results": 0, "docs": 0, "chunks": 0, "rows_written": 0, "errors": [], "source_ids": [],
+    }
     for i, result in enumerate(connector.fetch()):
         if max_results is not None and i >= max_results:
             break
@@ -68,6 +73,7 @@ def run_connector(connector, *, source_name: str, dry_run: bool = False,
             stats["docs"] += got.get("docs", 0)
             stats["chunks"] += got.get("chunks", 0)
             stats["rows_written"] += got.get("written", 0)
+            stats["source_ids"].extend(got.get("source_ids", []))
         except Exception as exc:  # noqa: BLE001 - collect, keep going
             log.exception("sink route failed (%s result %d)", source_name, i)
             stats["errors"].append(str(exc))

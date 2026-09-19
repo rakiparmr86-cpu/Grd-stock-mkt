@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AuthError, uploadsTracker } from './api'
+import { AuthError, triggerDocumentRun, uploadsTracker } from './api'
+import { useRefreshButton } from './useRefreshButton'
 
 const POLL_MS = 5000
 
@@ -16,6 +17,7 @@ function fmtTime(iso) {
 export default function Uploads({ onExpire }) {
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
+  const [analyzingId, setAnalyzingId] = useState(null)
   const timer = useRef(null)
 
   const load = useCallback(async () => {
@@ -28,11 +30,29 @@ export default function Uploads({ onExpire }) {
     }
   }, [onExpire])
 
+  const { refreshing, handleClick: handleRefreshClick } = useRefreshButton(load)
+
   useEffect(() => {
     load()
     timer.current = setInterval(load, POLL_MS)
     return () => clearInterval(timer.current)
   }, [load])
+
+  const handleAnalyzeDocument = async (ingestionRunId) => {
+    setAnalyzingId(ingestionRunId)
+    setErr(null)
+    try {
+      await triggerDocumentRun(ingestionRunId)
+      // the run is queued (or done, if sync) — reload shortly so "Analyzed?"
+      // has a chance to flip once it actually completes
+      setTimeout(load, 1000)
+    } catch (e) {
+      if (e instanceof AuthError) return onExpire()
+      setErr(String(e.message || e))
+    } finally {
+      setAnalyzingId(null)
+    }
+  }
 
   const items = data?.items || []
 
@@ -40,8 +60,8 @@ export default function Uploads({ onExpire }) {
     <div className="card wide">
       <div className="card-head">
         <h2>Uploaded files</h2>
-        <button type="button" className="ghost" onClick={load}>
-          Refresh
+        <button type="button" className="ghost" onClick={handleRefreshClick} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
       <p className="hint">
@@ -67,31 +87,49 @@ export default function Uploads({ onExpire }) {
               <th>Status</th>
               <th>Stats</th>
               <th>Analyzed?</th>
+              <th>Document analysis</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan="6" className="muted">
+                <td colSpan="7" className="muted">
                   no uploads yet
                 </td>
               </tr>
             )}
-            {items.map((it) => (
-              <tr key={it.id}>
-                <td>{fmtTime(it.finished_at || it.started_at)}</td>
-                <td>{it.source_name}</td>
-                <td>{it.ticker || '—'}</td>
-                <td className={it.status === 'error' ? 'err-text' : it.status === 'ok' ? 'ok-text' : 'muted'}>
-                  {it.finished_at ? it.status : 'running…'}
-                </td>
-                <td>
-                  <code>{it.stats && Object.keys(it.stats).length ? JSON.stringify(it.stats) : '—'}</code>
-                  {it.error && <div className="tiny err-text">{it.error}</div>}
-                </td>
-                <td className={it.analyzed ? 'ok-text' : 'muted'}>{it.analyzed ? 'yes' : 'not yet'}</td>
-              </tr>
-            ))}
+            {items.map((it) => {
+              const hasDocChunks = (it.stats?.chunks || 0) > 0
+              return (
+                <tr key={it.id}>
+                  <td>{fmtTime(it.finished_at || it.started_at)}</td>
+                  <td>{it.source_name}</td>
+                  <td>{it.ticker || '—'}</td>
+                  <td className={it.status === 'error' ? 'err-text' : it.status === 'ok' ? 'ok-text' : 'muted'}>
+                    {it.finished_at ? it.status : 'running…'}
+                  </td>
+                  <td>
+                    <code>{it.stats && Object.keys(it.stats).length ? JSON.stringify(it.stats) : '—'}</code>
+                    {it.error && <div className="tiny err-text">{it.error}</div>}
+                  </td>
+                  <td className={it.analyzed ? 'ok-text' : 'muted'}>{it.analyzed ? 'yes' : 'not yet'}</td>
+                  <td>
+                    {hasDocChunks ? (
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={analyzingId === it.id}
+                        onClick={() => handleAnalyzeDocument(it.id)}
+                      >
+                        {analyzingId === it.id ? 'Queuing…' : 'Analyze document'}
+                      </button>
+                    ) : (
+                      <span className="tiny muted">no document text (rows-mode upload)</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

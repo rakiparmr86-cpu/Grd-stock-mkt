@@ -43,6 +43,13 @@ def _run(ticker, started):
     return SimpleNamespace(context={"ticker": ticker}, started_at=_dt(started))
 
 
+def _doc_run(ingestion_run_id, started="2026-01-01T10:05:00"):
+    return SimpleNamespace(
+        context={"kind": "document", "ingestion_run_id": ingestion_run_id},
+        started_at=_dt(started),
+    )
+
+
 def test_upload_analyzed_when_run_happens_after_ingestion_finishes():
     ingestion = [_ingest(1, name="Upload: infy.csv", ticker="INFY",
                         started="2026-01-01T10:00:00", finished="2026-01-01T10:00:05")]
@@ -87,6 +94,26 @@ def test_ticker_matching_is_case_insensitive():
     runs = [_run("INFY", "2026-01-01T10:05:00")]
     out = uploads_tracker(_FakeIngestionRunRepo(ingestion), _FakeRunRepo(runs))
     assert out["items"][0]["analyzed"] is True
+
+
+def test_document_upload_analyzed_when_matching_document_run_exists():
+    """A ticker-less (docs-mode) upload can never match the ticker-based
+    check at all — it needs its own path: a "Manual Document Analysis" run
+    whose context names this exact ingestion run id."""
+    ingestion = [_ingest(1, name="Upload: report.pdf", ticker=None,
+                        started="2026-01-01T10:00:00", finished="2026-01-01T10:00:05")]
+    runs = [_doc_run(ingestion_run_id=1)]
+    out = uploads_tracker(_FakeIngestionRunRepo(ingestion), _FakeRunRepo(runs))
+    assert out["items"][0]["analyzed"] is True
+    assert out["analyzed"] == 1
+
+
+def test_document_upload_not_analyzed_by_a_different_documents_run():
+    ingestion = [_ingest(1, name="Upload: report.pdf", ticker=None,
+                        started="2026-01-01T10:00:00", finished="2026-01-01T10:00:05")]
+    runs = [_doc_run(ingestion_run_id=999)]  # a different upload's document run
+    out = uploads_tracker(_FakeIngestionRunRepo(ingestion), _FakeRunRepo(runs))
+    assert out["items"][0]["analyzed"] is False
 
 
 def test_summary_counts_mixed_analyzed_and_pending():

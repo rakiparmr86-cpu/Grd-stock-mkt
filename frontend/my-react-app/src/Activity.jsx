@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthError, listActivity } from './api'
+import { useRefreshButton } from './useRefreshButton'
 
 const POLL_MS = 5000
 
@@ -46,6 +47,8 @@ export default function Activity({ onExpire }) {
     }
   }, [onExpire])
 
+  const { refreshing, handleClick: handleRefreshClick } = useRefreshButton(load)
+
   useEffect(() => {
     load()
     if (paused) return undefined
@@ -64,8 +67,8 @@ export default function Activity({ onExpire }) {
           <button type="button" className="ghost" onClick={() => setPaused((p) => !p)}>
             {paused ? 'Resume' : 'Pause'}
           </button>
-          <button type="button" className="ghost" onClick={load}>
-            Refresh now
+          <button type="button" className="ghost" onClick={handleRefreshClick} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : 'Refresh now'}
           </button>
         </div>
       </div>
