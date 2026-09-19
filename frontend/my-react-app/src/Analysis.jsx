@@ -10,6 +10,7 @@ import {
   reportHtmlUrl,
   triggerRun,
 } from './api'
+import PriceChart from './PriceChart'
 import { useReportBusy } from './taskActivity'
 
 function fmtDate(s) {
@@ -434,6 +435,9 @@ export default function Analysis({ onExpire }) {
 
   return (
     <>
+      <h2 className="part-title">
+        <span>1</span>Analysis runs
+      </h2>
       <RunTrigger onQueued={handleQueued} onExpire={onExpire} />
       {pendingTask && (
         <TaskWatcher
@@ -447,6 +451,11 @@ export default function Analysis({ onExpire }) {
       {err && <pre className="result err">{err}</pre>}
       <RunsTable runs={runs} selectedId={selectedId} onSelect={setSelectedId} onRefresh={refresh} />
       <RunDetail run={selected} onExpire={onExpire} />
+
+      <h2 className="part-title">
+        <span>2</span>Graph &amp; prediction
+      </h2>
+      <PriceChart onExpire={onExpire} />
     </>
   )
 }

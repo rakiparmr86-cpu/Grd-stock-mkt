@@ -187,3 +187,16 @@ For non-Screener documents (`app/services/document_stats.py`):
 - Short histories (10 annual points) give wide confidence intervals; the code refuses to fit below 4.
 - The technical and fundamental scores use fixed thresholds (for example P/E 15 and 40), which suit some sectors and not others. Lenders, for example, look "Weak" on operating cash flow.
 - Not investment advice.
+
+---
+
+## 7. Charts and prediction exports
+
+| Where | What | Endpoint |
+|---|---|---|
+| Web: Analysis tab, part 2 "Graph & prediction"; app: Analyze tab, part 2 | Candlestick or line chart of the last 60/120/250 daily bars, volume strip, 20-bar moving average | `GET /market/tickers`, `GET /market/ohlcv/{ticker}?limit=` |
+| Same chart, "forecast" switch | The next 20 trading days as a dashed line with a shaded 95% interval. Method: the statistics engine's ETS (Holt-Winters, additive trend) over daily closes, ARIMA(1,1,1) when selected. A trend extrapolation, not a market prediction | `GET /market/forecast/{ticker}?history=&ahead=` |
+| "Prediction HTML" / "Prediction Excel" buttons | HTML page with a matplotlib chart plus summary and forecast tables; Excel with the actual, forecast and interval columns and a native line chart | `GET /market/forecast/{ticker}/html`, `.../excel` |
+| Prediction report for a Screener workbook (Uploads, "Analyze document") | HTML: two graphs (sales and net profit history with the base-case projection, and implied price by scenario against the current price). Excel: the same three as native charts on the Prediction Report sheet, fed by a "chart data" block that follows the scenario cells | `GET /reports/{id}/html`, `GET /reports/{id}/excel` |
+
+The two download links are opened by a browser or phone, which cannot send an `Authorization` header, so they also accept the login token as `?access_token=`. That puts the token in the URL (and in server logs), which is acceptable on a local network but not for a public deployment; put the API behind HTTPS and shorten the token lifetime there.

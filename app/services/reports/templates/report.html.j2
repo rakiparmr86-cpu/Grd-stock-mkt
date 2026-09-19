@@ -73,6 +73,13 @@
   </div>
   {% endif %}
 
+  {% for c in charts %}
+  <div class="card">
+    <h3>{{ c.heading }}</h3>
+    <img alt="{{ c.heading }}" src="data:image/png;base64,{{ c.b64 }}">
+  </div>
+  {% endfor %}
+
   {% for t in tables %}
   <div class="card">
     <h3>{{ t.heading }}</h3>

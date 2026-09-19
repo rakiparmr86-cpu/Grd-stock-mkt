@@ -39,6 +39,7 @@ class ReportRenderer:
             "indicators": payload.get("indicators", {}),
             "forecast": payload.get("forecast"),
             "tables": payload.get("tables", []),
+            "charts": payload.get("charts", []),
         }
         return tmpl.render(**ctx)
 

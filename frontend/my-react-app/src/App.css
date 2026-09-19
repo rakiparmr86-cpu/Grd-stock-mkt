@@ -339,3 +339,22 @@ footer {
   color: var(--muted);
   font-size: 12px;
 }
+
+.part-title {
+  margin: 28px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.part-title span {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 8px;
+  padding: 1px 0;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+}

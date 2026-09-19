@@ -96,10 +96,7 @@ IngestionRunRepo = Annotated[IngestionRunRepository, Depends(get_ingestion_run_r
 
 
 # ── auth ────────────────────────────────────────────────────────────────
-def get_current_user(
-    users: UserRepo,
-    token: Annotated[str | None, Depends(oauth2_scheme)],
-) -> User:
+def _user_for_token(users: UserRepo, token: str | None) -> User:
     cred_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
@@ -116,6 +113,23 @@ def get_current_user(
     if user is None or not user.is_active:
         raise cred_exc
     return user
+
+
+def get_current_user(
+    users: UserRepo,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+) -> User:
+    return _user_for_token(users, token)
+
+
+def get_export_user(
+    users: UserRepo,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+    access_token: str | None = None,
+) -> User:
+    """Like ``get_current_user`` but also accepts ``?access_token=``: a browser
+    or phone opening a download link cannot attach an Authorization header."""
+    return _user_for_token(users, token or access_token)
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

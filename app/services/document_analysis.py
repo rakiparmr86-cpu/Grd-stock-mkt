@@ -31,6 +31,7 @@ from app.services.document_stats import _fmt, analyze_text, report_sections
 from app.services.rag.vectorstore import get_store
 from app.services.reports.prediction_report import (
     build_prediction_model,
+    charts_b64,
     html_tables,
     is_screener_workbook,
 )
@@ -158,7 +159,9 @@ def analyze_document(ingestion_run_id: int, *, run_id: int) -> dict[str, Any]:
                    f"{base['sales']:,.0f}, EPS {base['eps']:.2f}, implied price "
                    f"{base['implied_price']:,.0f} ({base['upside_downside_pct']:+.1f}%); "
                    f"signal {prediction['overall']}")
-    rendered = render_report(payload, slug="document")
+    # graphs are embedded in the HTML only; the stored payload stays small
+    render_payload = {**payload, "charts": charts_b64(prediction)} if prediction else payload
+    rendered = render_report(render_payload, slug="document")
 
     with session_scope() as db:
         report = ReportRepository(db).add(Report(

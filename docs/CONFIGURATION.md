@@ -176,3 +176,15 @@ EMBEDDINGS_PROVIDER=local
 To turn on real analysis, add `LLM_PROVIDER=openai` + `OPENAI_API_KEY=...`
 (optionally `EMBEDDINGS_PROVIDER=openai` too — then recreate the Qdrant
 collection because the vector dim changes from 384 → 1536).
+
+## Mobile app (grd_mb) settings
+
+These are set in the terminal that runs `npx expo start`, not in the backend `.env`. Full phone setup steps are in [COMMANDS.md](COMMANDS.md#21-testing-on-a-real-phone-expo-go-over-wi-fi).
+
+| Variable | Default | Effect |
+|---|---|---|
+| `EXPO_PUBLIC_API_BASE` | guessed from Expo's dev address (`http://<pc-ip>:8000/api/v1`); `10.0.2.2` on the Android emulator; `localhost` on web | The API address the app calls. Set it when the guess is wrong, for example `http://192.168.1.20:8000/api/v1` |
+| `REACT_NATIVE_PACKAGER_HOSTNAME` | Expo picks an adapter | The PC address Expo shows the phone. Set it to your real LAN IP when the PC has WSL/Hyper-V adapters |
+| `ANDROID_HOME` | not set | Only for the Android emulator (needs Android Studio). Not needed for Expo Go |
+
+The backend side: the API must run with `--host 0.0.0.0` for a phone to reach it, and the Windows Firewall must allow inbound TCP 8000 on your private network. The API's CORS list (`CORS_ORIGINS`) affects browsers only, not the phone app.

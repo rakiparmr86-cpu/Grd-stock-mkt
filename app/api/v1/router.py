@@ -8,6 +8,7 @@ from app.api.v1 import (
     exceptions,
     health,
     inputs,
+    market,
     reports,
     rules,
     runs,
@@ -40,3 +41,5 @@ api_router.include_router(
 api_router.include_router(
     exceptions.router, prefix="/exceptions", tags=["exceptions"], dependencies=_auth
 )
+api_router.include_router(market.router, prefix="/market", tags=["market"], dependencies=_auth)
+api_router.include_router(market.export_router, prefix="/market", tags=["market"])

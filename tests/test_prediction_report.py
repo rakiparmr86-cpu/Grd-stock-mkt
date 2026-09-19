@@ -82,3 +82,26 @@ def test_html_tables_and_excel_layout(tmp_path):
     assert pr["A18"].value == "Metric" and pr["B18"].value == "Bear Case"
     assert pr["B23"].value == "=B21*B22"
     assert wb2["Prediction Inputs"]["A5"].value == "TTM Sales"
+
+
+def test_history_and_graphs(tmp_path):
+    from app.services.reports.prediction_report import charts_b64
+
+    m = build_prediction_model(_workbook(tmp_path / "a.xlsx"))
+    assert [h["period"] for h in m["history"]][-1] == "FY26"
+    graphs = charts_b64(m)
+    assert [g["heading"] for g in graphs] == [
+        "History and base-case projection", "Scenario valuation",
+    ]
+    assert all(len(g["b64"]) > 1000 for g in graphs)
+
+
+def test_excel_has_three_native_charts_and_chart_data(tmp_path):
+    m = build_prediction_model(_workbook(tmp_path / "a.xlsx"))
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    write_prediction_sheets(wb, m)
+    pr = wb["Prediction Report"]
+    assert len(pr._charts) == 3
+    assert pr["A41"].value == "Year" and pr["A42"].value.startswith("FY")
+    assert pr["B25"].value == "='Prediction Inputs'!B10"

@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnalysisResult, type ReportPayload } from '@/components/analysis-result';
+import { PriceChart } from '@/components/price-chart';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAuth } from '@/context/auth';
@@ -113,6 +114,9 @@ export default function AnalyzeScreen() {
           </Pressable>
         </ThemedView>
 
+        <ThemedText type="smallBold" themeColor="textSecondary">
+          1 · ANALYSIS RUN
+        </ThemedText>
         <ThemedView type="backgroundElement" style={styles.form}>
           <ThemedText type="smallBold" style={styles.label}>
             Company / ticker
@@ -174,6 +178,11 @@ export default function AnalyzeScreen() {
             </ThemedText>
           </ThemedView>
         )}
+
+        <ThemedText type="smallBold" themeColor="textSecondary">
+          2 · GRAPH &amp; PREDICTION
+        </ThemedText>
+        <PriceChart />
 
         {Platform.OS === 'web' && state.phase === 'idle' && (
           <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>

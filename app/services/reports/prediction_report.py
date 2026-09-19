@@ -190,7 +190,13 @@ def build_prediction_model(path: Path) -> dict[str, Any]:
         (f"{fy} ROE", roe, "Net profit / (equity + reserves)"),
         (f"{fy} Operating Cash Flow", ocf, "Cash Flow"),
     ]
+    history = []
+    for period, sale, profit in zip(pl.index, pl["Sales"], pl["Net profit"], strict=True):
+        if _f(sale) is not None and _f(profit) is not None:
+            history.append({"period": f"FY{str(period)[2:4]}", "sales": _f(sale),
+                            "net_profit": _f(profit)})
     return {
+        "history": history[-6:],
         "company": str(ds.get("COMPANY NAME") or path.stem), "fy": fy, "ttm_label": ttm_label,
         "inputs": inputs, "snapshot": snapshot, "signals": signals, "overall": overall,
         "assumptions": {"sales_growth": sg, "profit_growth": pg, "target_pe": tpe},
@@ -243,6 +249,53 @@ def html_tables(m: dict[str, Any]) -> list[dict[str, Any]]:
          "rows": [[str(m["confidence"]["score"]), m["confidence"]["band"]]]},
     ]
     return tables
+
+
+# ─────────────────────────── charts (HTML) ───────────────────────────
+def charts_b64(m: dict[str, Any]) -> list[dict[str, str]]:
+    """PNG graphs for the HTML report: history + base-case projection, and scenario prices."""
+    import matplotlib.pyplot as plt
+
+    from app.services.reports.charts import _fig_to_b64
+
+    hist = m["history"]
+    proj = m["outlook"][1:]
+    labels = [h["period"] for h in hist] + [o["period"] for o in proj]
+    out: list[dict[str, str]] = []
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
+    for ax, key, title in ((axes[0], "sales", "Sales"), (axes[1], "net_profit", "Net profit")):
+        actual = [h[key] for h in hist]
+        projected = [o[key] for o in proj]
+        ax.bar(range(len(actual)), actual, color="#2563eb", label="actual")
+        ax.bar(range(len(actual), len(actual) + len(projected)), projected, color="#d97706",
+               hatch="//", alpha=0.85, label="base-case projection")
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, fontsize=8)
+        ax.set_title(f"{title}: history and projection", fontsize=10)
+        ax.grid(axis="y", alpha=0.25)
+        ax.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+    out.append({"heading": "History and base-case projection", "b64": _fig_to_b64(fig)})
+
+    sc = m["scenarios"]
+    price = next(v for k, v, _ in m["inputs"] if k == "Sheet Current Price")
+    names = ["bear", "base", "bull"]
+    vals = [sc[k]["implied_price"] for k in names]
+    fig, ax = plt.subplots(figsize=(6.5, 3.6))
+    bars = ax.bar([n.title() for n in names], vals, color=["#b42318", "#6b7280", "#1a7f37"])
+    ax.axhline(price, color="black", linestyle="--", linewidth=1,
+               label=f"current price {price:,.0f}")
+    for b, v in zip(bars, vals, strict=True):
+        ax.text(b.get_x() + b.get_width() / 2, v, f"{v:,.0f}", ha="center", va="bottom",
+                fontsize=9)
+    ax.set_title(f"{m['outlook'][1]['period'].rstrip('E')} implied valuation price by scenario",
+                 fontsize=10)
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    out.append({"heading": "Scenario valuation", "b64": _fig_to_b64(fig)})
+    return out
 
 
 # ─────────────────────────── Excel ───────────────────────────
@@ -348,6 +401,10 @@ def write_prediction_sheets(wb, m: dict[str, Any]) -> None:
                                       "Implied Valuation Price", "Upside / Downside vs Sheet Price"],
                       strict=True):
         pr[f"A{r}"] = lab
+    pr["A25"] = "Sheet Current Price"
+    for col in "BCD":
+        pr[f"{col}25"] = "='Prediction Inputs'!B10"
+        pr[f"{col}25"].number_format = "#,##0.00"
 
     pr["A27"] = "3. BASE-CASE MULTI-YEAR OUTLOOK"
     pr["A27"].font = bold
@@ -373,3 +430,53 @@ def write_prediction_sheets(wb, m: dict[str, Any]) -> None:
     pr.merge_cells("A36:G38")
     for col, w in zip("ABCDEFG", [34, 16, 16, 30, 18, 42, 8], strict=True):
         pr.column_dimensions[col].width = w
+
+    _write_excel_charts(pr, m)
+
+
+def _write_excel_charts(pr, m: dict[str, Any]) -> None:
+    """Chart data block (history + formulas pointing at the outlook) and native charts."""
+    from openpyxl.chart import BarChart, Reference
+    from openpyxl.styles import Font
+
+    pr["A40"] = "4. CHART DATA (history + base-case projection; projection cells follow section 3)"
+    pr["A40"].font = Font(bold=True)
+    for c, t in zip("ABC", ["Year", "Sales", "Net Profit"], strict=True):
+        pr[f"{c}41"] = t
+        pr[f"{c}41"].font = Font(bold=True)
+    row = 42
+    for h in m["history"]:
+        pr[f"A{row}"], pr[f"B{row}"], pr[f"C{row}"] = h["period"], h["sales"], h["net_profit"]
+        row += 1
+    for i in range(1, len(m["outlook"])):
+        pr[f"A{row}"] = m["outlook"][i]["period"]
+        pr[f"B{row}"] = f"=B{30 + i}"
+        pr[f"C{row}"] = f"=C{30 + i}"
+        row += 1
+    last = row - 1
+    for r in range(42, last + 1):
+        pr[f"B{r}"].number_format = pr[f"C{r}"].number_format = "#,##0.00"
+
+    cats = Reference(pr, min_col=1, min_row=42, max_row=last)
+    for title, col, anchor in (("Sales: history and projection", 2, "I4"),
+                               ("Net profit: history and projection", 3, "I22")):
+        ch = BarChart()
+        ch.type, ch.title = "col", title
+        ch.height, ch.width = 8, 16
+        ch.add_data(Reference(pr, min_col=col, min_row=41, max_row=last), titles_from_data=True)
+        ch.set_categories(cats)
+        ch.legend = None
+        ch.series[0].graphicalProperties.solidFill = "2563EB"
+        pr.add_chart(ch, anchor)
+
+    sc = BarChart()
+    sc.type, sc.title = "col", "Implied price by scenario vs current price"
+    sc.height, sc.width = 8, 16
+    sc.add_data(Reference(pr, min_col=1, max_col=4, min_row=23), from_rows=True,
+                titles_from_data=True)
+    sc.add_data(Reference(pr, min_col=1, max_col=4, min_row=25), from_rows=True,
+                titles_from_data=True)
+    sc.set_categories(Reference(pr, min_col=2, max_col=4, min_row=18))
+    sc.series[0].graphicalProperties.solidFill = "1A7F37"
+    sc.series[1].graphicalProperties.solidFill = "9CA3AF"
+    pr.add_chart(sc, "I40")

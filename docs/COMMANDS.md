@@ -170,20 +170,85 @@ Opens at http://localhost:5170. Sign in with the user you created (the demo seed
 ```powershell
 cd grd_mb
 npx expo start --web        # in the browser, http://localhost:8081
-npx expo start              # phone with Expo Go: scan the QR (same Wi-Fi; API must use --host 0.0.0.0)
-npx expo start --android    # Android emulator
+npx expo start              # phone with Expo Go: scan the QR (needs the setup in section 2.1)
 ```
 
-To point the app at a specific API address:
+Testing on a real phone needs extra steps: the API must listen on your network and the firewall must allow it. See **section 2.1**.
+
+The Android emulator (`npx expo start --android`) needs Android Studio and the Android SDK, which are not required for Expo Go. Without the SDK, Expo prints "Failed to resolve the Android SDK path". That message is only a warning; ignore it, or hide it for one session with `$env:ANDROID_HOME = "$env:LOCALAPPDATA"`.
+
+### 2.1 Testing on a real phone (Expo Go over Wi-Fi)
+
+The app loads from Expo but **logs in through the API**. If the API only listens on `127.0.0.1` (localhost), the phone can load the app and then fails to log in ("can't reach the API" after a long wait). Work through these once, in order.
+
+**Step 1: find your PC's Wi-Fi/LAN address.** Ignore the WSL and Hyper-V ("vEthernet") addresses.
 
 ```powershell
-$env:EXPO_PUBLIC_API_BASE = "http://192.168.1.5:8000/api/v1"
-npx expo start
+ipconfig
 ```
 
+Use the IPv4 address of your real adapter (for example `192.168.1.20`). The phone must be on the same network.
 
-$env:ANDROID_HOME = "$env:LOCALAPPDATA"
-npx expo start
+**Step 2: run the API on all interfaces.** Use a terminal:
+
+```powershell
+cd D:
+ewdata\Grd-stk-mkt\grd_st_mkt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
+```
+
+Or in VS Code, choose **"API: uvicorn (LAN, for phone testing via grd_mb)"** in Run and Debug. The other API entries use `127.0.0.1` and will not work from a phone. The startup line must say `Uvicorn running on http://0.0.0.0:8000`. `make api-lan` does the same.
+
+Check what it is listening on:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object LocalAddress
+```
+
+`0.0.0.0` is right. `127.0.0.1` means the phone cannot connect and no firewall setting will fix that.
+
+**Step 3: allow the port through Windows Firewall.** Run once in an **Administrator** PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "GRD API 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private,Domain
+```
+
+If your network is set to "Public", change it to Private, or add `Public` to `-Profile`.
+
+**Step 4: test from the PC using the LAN address** (not `localhost`):
+
+```powershell
+curl.exe http://192.168.1.20:8000/api/v1/health
+```
+
+Expect `{"status":"ok",...}`. "Failed to connect" means Step 2 or 3 is not done.
+
+**Step 5: test from the phone's browser.** Open `http://192.168.1.20:8000/api/v1/health` on the phone. If the PC test passed but this does not load, the router is separating devices (guest Wi-Fi or "AP isolation"). Join the main Wi-Fi.
+
+**Step 6: start Expo with the right address.** Because of the extra network adapters, Expo can pick the wrong one, so set it explicitly:
+
+```powershell
+cd D:
+ewdata\Grd-stk-mkt\grd_st_mkt\grd_mb
+$env:REACT_NATIVE_PACKAGER_HOSTNAME = "192.168.1.20"
+$env:EXPO_PUBLIC_API_BASE = "http://192.168.1.20:8000/api/v1"
+npx expo start -c
+```
+
+`-c` clears Expo's cache. Scan the QR code with Expo Go. If the login fails, the error shows the exact address the app tried; compare it with your PC address.
+
+**Mobile checklist**
+
+| Symptom | Cause |
+|---|---|
+| App loads, login hangs then "can't reach the API" | API bound to `127.0.0.1`, or firewall closed (Steps 2, 3) |
+| PC test works, phone browser does not | Wi-Fi isolation or different network (Step 5) |
+| Error shows the wrong IP | Set `EXPO_PUBLIC_API_BASE` and restart with `-c` (Step 6) |
+| Code change not showing, or an old syntax error persists | Expo cache: stop it and run `npx expo start -c`; close unsaved editor copies of the file |
+| Screen shows old behaviour after changing `.env` or backend code | Restart the API and the Celery worker; they do not reload `.env` |
+
+To run the app on a phone with no PC at all, build an APK (Expo cloud build), which still needs an API address the phone can reach. This is not set up in the project.
+
 ### URLs at a glance
 
 | What | URL |
@@ -348,6 +413,7 @@ curl.exe -X POST http://localhost:8000/api/v1/runs -H "Authorization: Bearer $t"
 | Analysis says "insufficient data" | The ticker needs at least 30 daily price bars ingested |
 | Report shows placeholder text | No `OPENAI_API_KEY`: analysis still works, only AI narrative text is skipped |
 | Two workers competing after moving folders | Stop all Celery processes, then start one: `Get-CimInstance Win32_Process \| Where-Object { $_.CommandLine -match 'celery' } \| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }` |
+| Phone: app loads but login fails or hangs | API not on `0.0.0.0` or firewall closed: see section 2.1 |
 | Port already in use | Find it: `Get-NetTCPConnection -LocalPort 8000 -State Listen`, then stop that process id |
 | `Activate.ps1` blocked | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 

@@ -9,8 +9,10 @@
 | **[DATABASE.md](DATABASE.md)** | Developers / operators | How the schema is managed (Alembic migrations), the change workflow, `make db-*` commands, CI checks, prod / K8s rollout. |
 | **[RULES.md](RULES.md)** | Anyone writing strategies | Copy-paste signal-rule expressions (RSI, crossovers, breakouts, combined) + gotchas. |
 | **[DATA_FORMATS.md](DATA_FORMATS.md)** | Anyone feeding data in | Exact file/column/date formats each input connector expects; auth config for crawler & API. |
+| **[DEPLOYMENT.md](DEPLOYMENT.md)** | Operators / interview prep | Hosting the whole project on a server: architecture, what exists vs what to add, one-VM Docker Compose with HTTPS, CI/CD pipeline, Kubernetes manifests, RAG (Qdrant) hosting, security, backups. |
 | **[COMMANDS.md](COMMANDS.md)** | Anyone running the project | Every command from install to running: Python env, `.env`, Docker, migrations, API, worker, web and mobile apps, tests, troubleshooting. |
 | **[UPLOAD_AND_AGENTS.md](UPLOAD_AND_AGENTS.md)** | Anyone | What happens after an upload, and how the analysis agents work together. |
+| **[AGENTS_INTERVIEW.md](AGENTS_INTERVIEW.md)** | Interview prep / anyone learning the agents | How the six agents collaborate through shared state, a real INFY run traced step by step with the score arithmetic, design trade-offs, honest limitations, and likely interview Q&A. |
 | **[ANALYSIS_METHODS.md](ANALYSIS_METHODS.md)** | Anyone / analysts | Every technique, statistic and library the analysis uses, thresholds included, and what is (not) an LLM. |
 
 Project one-screen summary: [../README.md](../README.md)

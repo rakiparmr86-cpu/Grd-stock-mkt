@@ -153,3 +153,20 @@ export function listExceptions(limit = 100) {
 export function deleteException(id) {
   return api(`/exceptions/${id}`, { method: 'DELETE' })
 }
+
+// ── price charts ──────────────────────────────────────────────────
+export function listPriceTickers() {
+  return api('/market/tickers')
+}
+export function getOhlcv(ticker, limit = 120) {
+  return api(`/market/ohlcv/${encodeURIComponent(ticker)}?limit=${limit}`)
+}
+export function getForecast(ticker, history = 120, ahead = 20) {
+  return api(`/market/forecast/${encodeURIComponent(ticker)}?history=${history}&ahead=${ahead}`)
+}
+// Download links are opened by the browser (no Authorization header), so the
+// token rides along as ?access_token=.
+export function forecastExportUrl(ticker, kind, history = 120, ahead = 20) {
+  const t = encodeURIComponent(getToken() || '')
+  return `${API_BASE}/market/forecast/${encodeURIComponent(ticker)}/${kind}?history=${history}&ahead=${ahead}&access_token=${t}`
+}

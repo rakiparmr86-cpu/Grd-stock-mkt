@@ -28,6 +28,23 @@ export const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? defaultApiBase();
 
 export class AuthError extends Error {}
 
+// A phone that can't reach the API otherwise waits for the OS TCP timeout
+// (minutes) before failing; give up after 15s instead.
+const REQUEST_TIMEOUT_MS = 15000;
+
+function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+function unreachable(): Error {
+  return new Error(
+    `can't reach the API at ${API_BASE} — is it running with --host 0.0.0.0, ` +
+      'and is the phone on the same Wi-Fi? (set EXPO_PUBLIC_API_BASE to the PC IP if the address above is wrong)',
+  );
+}
+
 async function parseBody(res: Response) {
   const text = await res.text();
   try {
@@ -47,9 +64,9 @@ export async function api(path: string, opts: RequestInit = {}) {
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+    res = await fetchWithTimeout(`${API_BASE}${path}`, { ...opts, headers });
   } catch {
-    throw new Error(`can't reach the API at ${API_BASE} — is it running and on the same network?`);
+    throw unreachable();
   }
   const body = await parseBody(res);
   if (res.status === 401) {
@@ -67,13 +84,13 @@ export async function api(path: string, opts: RequestInit = {}) {
 export async function login(email: string, password: string) {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/auth/login`, {
+    res = await fetchWithTimeout(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ username: email, password }).toString(),
     });
   } catch {
-    throw new Error(`can't reach the API at ${API_BASE} — is it running and on the same network?`);
+    throw unreachable();
   }
   const body = await parseBody(res);
   if (!res.ok) {
@@ -203,4 +220,40 @@ export function listExceptions(limit = 200) {
 
 export function deleteException(id: number) {
   return api(`/exceptions/${id}`, { method: 'DELETE' });
+}
+
+// ── price charts ──────────────────────────────────────────────────
+export function listPriceTickers() {
+  return api('/market/tickers');
+}
+
+export function getOhlcv(ticker: string, limit = 120) {
+  return api(`/market/ohlcv/${encodeURIComponent(ticker)}?limit=${limit}`);
+}
+
+export type ForecastPoint = { ts: string; value: number; low: number; high: number };
+export type Forecast = {
+  ticker: string;
+  method: string;
+  ahead: number;
+  last_close: number;
+  forecast_end: number;
+  forecast_change_pct: number | null;
+  forecast: ForecastPoint[];
+};
+
+export function getForecast(ticker: string, history = 120, ahead = 20): Promise<Forecast> {
+  return api(`/market/forecast/${encodeURIComponent(ticker)}?history=${history}&ahead=${ahead}`);
+}
+
+// Opened in the device browser, which cannot send an Authorization header,
+// so the token travels as ?access_token=.
+export async function forecastExportUrl(
+  ticker: string,
+  kind: 'html' | 'excel',
+  history = 120,
+  ahead = 20,
+) {
+  const t = encodeURIComponent((await getToken()) ?? '');
+  return `${API_BASE}/market/forecast/${encodeURIComponent(ticker)}/${kind}?history=${history}&ahead=${ahead}&access_token=${t}`;
 }
